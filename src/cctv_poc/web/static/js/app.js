@@ -1,6 +1,12 @@
 /**
  * CCTV Physical Display Monitoring - Standalone Frontend Application
  * Framework-agnostic client for real-time video, telemetry, alerts, identity management, and system configuration.
+ *
+ * Webcam Architecture:
+ *   1. Browser opens webcam via getUserMedia()
+ *   2. Every 100ms, a frame is captured from <video> onto an offscreen canvas
+ *   3. The JPEG is sent as binary over WebSocket to /ws/stream
+ *   4. Server returns JSON detections; browser draws bounding boxes on #detection-canvas
  */
 
 // Global client state
@@ -10,6 +16,275 @@ let audioCtx = null;
 let activeTagPerson = null;
 let activeEventFilter = 'all';
 let currentConfig = null;
+
+// WebSocket & webcam state
+let _ws = null;
+let _wsReconnectTimer = null;
+let _webcamStream = null;
+let _captureInterval = null;
+let _offscreenCanvas = null;
+let _offscreenCtx = null;
+let _lastDetectedPersons = [];
+
+// ============================================================
+// WEBCAM + WEBSOCKET — Browser-Side Camera Pipeline
+// ============================================================
+
+async function initWebcam() {
+  const video = document.getElementById('live-video');
+  const statusBanner = document.getElementById('camera-status-banner');
+  const statusText = document.getElementById('camera-status-text');
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    if (statusText) statusText.innerText = '❌ Camera API not supported in this browser. Use Chrome/Edge/Firefox over HTTPS.';
+    return;
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+      audio: false,
+    });
+    _webcamStream = stream;
+    video.srcObject = stream;
+    await video.play();
+
+    // Hide the status banner once video starts
+    video.addEventListener('playing', () => {
+      if (statusBanner) statusBanner.style.display = 'none';
+      addLogLine('📷 <b>Browser webcam opened</b>: Streaming frames to AI pipeline via WebSocket.');
+      startFrameCapture();
+    }, { once: true });
+
+  } catch (err) {
+    console.error('getUserMedia error:', err);
+    let msg = '❌ Camera permission denied. ';
+    if (err.name === 'NotFoundError') msg = '❌ No webcam found. Please connect a camera.';
+    if (err.name === 'NotAllowedError') msg = '❌ Camera access blocked. Allow camera in browser settings.';
+    if (err.name === 'NotReadableError') msg = '❌ Camera is in use by another app.';
+    if (statusText) statusText.innerText = msg;
+    addLogLine(`<span style="color:var(--accent-red)">${msg}</span>`);
+  }
+}
+
+function startFrameCapture() {
+  const video = document.getElementById('live-video');
+  const canvas = document.getElementById('detection-canvas');
+
+  // Create offscreen canvas for JPEG encoding
+  _offscreenCanvas = document.createElement('canvas');
+  _offscreenCtx = _offscreenCanvas.getContext('2d');
+
+  // Mirror canvas size to video
+  function syncCanvasSize() {
+    _offscreenCanvas.width = video.videoWidth || 1280;
+    _offscreenCanvas.height = video.videoHeight || 720;
+    if (canvas) {
+      canvas.width = video.videoWidth || 1280;
+      canvas.height = video.videoHeight || 720;
+    }
+  }
+  syncCanvasSize();
+
+  // Send a frame every 100ms (10fps to server for AI processing)
+  _captureInterval = setInterval(() => {
+    if (!_ws || _ws.readyState !== WebSocket.OPEN) return;
+    if (!video.videoWidth) return;  // video not ready yet
+
+    syncCanvasSize();
+    _offscreenCtx.drawImage(video, 0, 0);
+
+    _offscreenCanvas.toBlob((blob) => {
+      if (blob && _ws && _ws.readyState === WebSocket.OPEN) {
+        blob.arrayBuffer().then(buf => _ws.send(buf));
+      }
+    }, 'image/jpeg', 0.80);
+  }, 100);
+}
+
+function initWebSocket() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const wsUrl = `${proto}://${location.host}/ws/stream`;
+
+  _ws = new WebSocket(wsUrl);
+  _ws.binaryType = 'arraybuffer';
+
+  _ws.onopen = () => {
+    console.log('WebSocket connected to', wsUrl);
+    addLogLine('🔗 <b>WebSocket connected</b>: Server ready to process camera frames.');
+  };
+
+  _ws.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      if (data.error) {
+        console.warn('Server frame error:', data.error);
+        return;
+      }
+      // Update UI from detection results
+      _lastDetectedPersons = data.detected_persons || [];
+      updateTelemetryFromWs(data);
+      drawDetections(data.detected_persons || []);
+    } catch (e) {
+      console.error('WS message parse error:', e);
+    }
+  };
+
+  _ws.onclose = () => {
+    console.log('WebSocket disconnected. Reconnecting in 3s...');
+    if (_wsReconnectTimer) clearTimeout(_wsReconnectTimer);
+    _wsReconnectTimer = setTimeout(initWebSocket, 3000);
+  };
+
+  _ws.onerror = (err) => {
+    console.error('WebSocket error:', err);
+  };
+}
+
+function updateTelemetryFromWs(data) {
+  // Telemetry metrics
+  const fpsElem = document.getElementById('val-fps');
+  if (fpsElem && data.metrics) fpsElem.innerText = (data.metrics.processing_fps || 0).toFixed(1);
+  const latElem = document.getElementById('val-latency');
+  if (latElem && data.metrics) latElem.innerText = `${Math.round(data.metrics.end_to_end_latency_ms || 0)} ms`;
+  const confElem = document.getElementById('val-conf');
+  if (confElem) confElem.innerText = (data.layout_confidence || 0).toFixed(2);
+  const panesElem = document.getElementById('val-panes');
+  if (panesElem) {
+    const count = data.mode === 'DIRECT_ROOM_SURVEILLANCE'
+      ? `${(data.detected_persons || []).length} Persons`
+      : data.pane_count;
+    panesElem.innerText = count;
+  }
+
+  const layoutTag = document.getElementById('layout-tag');
+  if (layoutTag) layoutTag.innerText = data.mode === 'DIRECT_ROOM_SURVEILLANCE' ? 'LIVE SURVEILLANCE' : data.layout_id || 'SCANNING';
+
+  // Alert banner
+  const banner = document.getElementById('alert-banner');
+  const bannerText = document.getElementById('alert-text');
+  if (banner && bannerText) {
+    const alerts = (data.alerts || []).filter(a => !a.startsWith('WEBCAM'));
+    if (alerts.length > 0) {
+      banner.style.display = 'flex';
+      bannerText.innerText = alerts.join(' | ');
+    } else {
+      banner.style.display = 'none';
+    }
+  }
+
+  if (data.should_announce_audio) {
+    addLogLine('<span style="color: var(--accent-red); font-weight: bold;">🚨 INTRUSION ALERT</span>: Unknown person confirmed after multi-frame analysis.');
+    if (audioEnabled) playBuzzerBeep();
+  }
+
+  // Sidebar person cards
+  const container = document.getElementById('panes-container');
+  const titleText = document.getElementById('panel-title-text');
+  if (container && titleText && data.mode === 'DIRECT_ROOM_SURVEILLANCE') {
+    titleText.innerText = 'Live Persons in Room';
+    renderPersonCards(container, data.detected_persons || []);
+  }
+}
+
+function drawDetections(persons) {
+  const video = document.getElementById('live-video');
+  const canvas = document.getElementById('detection-canvas');
+  if (!canvas || !video.videoWidth) return;
+
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Scale factors: detections are in original video coords, canvas matches video
+  const scaleX = canvas.width / (video.videoWidth || canvas.width);
+  const scaleY = canvas.height / (video.videoHeight || canvas.height);
+
+  persons.forEach(p => {
+    const [x, y, w, h] = p.bbox;
+    const sx = x * scaleX, sy = y * scaleY, sw = w * scaleX, sh = h * scaleY;
+
+    const isKnown = p.is_known;
+    const color = isKnown ? '#00ff88' : '#ff3366';
+    const label = isKnown ? `✓ ${p.person_name} [${p.tag}]` : `⚠ Unknown — ${(p.confidence * 100).toFixed(0)}%`;
+
+    // Bounding box
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2.5;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 8;
+    ctx.strokeRect(sx, sy, sw, sh);
+    ctx.shadowBlur = 0;
+
+    // Corner accents (modern look)
+    const cs = Math.min(sw, sh) * 0.15;
+    ctx.lineWidth = 3;
+    [[sx, sy, cs, 0, 0, cs], [sx+sw, sy, -cs, 0, 0, cs], [sx, sy+sh, cs, 0, 0, -cs], [sx+sw, sy+sh, -cs, 0, 0, -cs]]
+      .forEach(([ox, oy, dx1, dy1, dx2, dy2]) => {
+        ctx.beginPath();
+        ctx.moveTo(ox + dx1, oy + dy1);
+        ctx.lineTo(ox, oy);
+        ctx.lineTo(ox + dx2, oy + dy2);
+        ctx.stroke();
+      });
+
+    // Label background + text
+    ctx.font = 'bold 13px "JetBrains Mono", monospace';
+    const tw = ctx.measureText(label).width;
+    const lx = sx, ly = sy > 24 ? sy - 8 : sy + sh + 20;
+    ctx.fillStyle = isKnown ? 'rgba(0,255,136,0.18)' : 'rgba(255,51,102,0.18)';
+    ctx.fillRect(lx - 2, ly - 16, tw + 10, 22);
+    ctx.fillStyle = color;
+    ctx.fillText(label, lx + 3, ly);
+  });
+}
+
+function playBuzzerBeep() {
+  try {
+    if (!audioCtx) initAudio();
+    const oscillator = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+    oscillator.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    oscillator.frequency.value = 880;
+    oscillator.type = 'square';
+    gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.4);
+    oscillator.start();
+    oscillator.stop(audioCtx.currentTime + 0.4);
+  } catch (e) {}
+}
+
+function renderPersonCards(container, persons) {
+  container.innerHTML = '';
+  if (persons.length === 0) {
+    container.innerHTML = '<div style="font-size: 0.8rem; color: var(--text-muted); padding: 18px; text-align: center;">Scanning room... No persons currently in view.</div>';
+    return;
+  }
+  persons.forEach((p, idx) => {
+    const card = document.createElement('div');
+    card.className = 'person-card';
+    if (p.is_known) card.classList.add('known');
+    const imgTag = p.snapshot_base64
+      ? `<img class="person-thumb" src="data:image/jpeg;base64,${p.snapshot_base64}" alt="Face Crop">`
+      : `<div class="person-thumb" style="display:flex;align-items:center;justify-content:center;background:#1e2430;">👤</div>`;
+    if (p.is_known) {
+      card.innerHTML = `${imgTag}<div class="person-info"><div class="person-header"><span class="person-name" style="color: var(--accent-green);">AUTHORIZED: ${p.person_name}</span><span class="person-tag-badge" style="background: rgba(0, 255, 136, 0.2); color: var(--accent-green);">${p.tag}</span></div><div class="person-meta">Match Conf: ${p.confidence} | Box: [${p.bbox.join(', ')}]</div><div style="margin-top: 4px;"><button class="btn" style="padding: 2px 8px; font-size: 0.7rem; color: #ff99b3; border-color: rgba(255,51,102,0.3);" onclick="untagPerson('${p.person_id}', '${p.person_name}')">🗑️ Untag</button></div></div>`;
+    } else {
+      card.innerHTML = `${imgTag}<div class="person-info"><div class="person-header"><span class="person-name" style="color: var(--accent-red);">🚨 UNKNOWN PERSON</span><span class="person-tag-badge" style="background: rgba(255, 51, 102, 0.2); color: #ff99b3;">INTRUDER</span></div><div class="person-meta">Conf: ${p.confidence} | Box: [${p.bbox.join(', ')}]</div><div style="margin-top: 4px;"><button class="btn btn-green" style="padding: 4px 10px; font-size: 0.75rem; font-weight: 600;" id="tag-btn-${idx}">🏷️ Identify &amp; Tag Person</button></div></div>`;
+      setTimeout(() => {
+        const btn = document.getElementById(`tag-btn-${idx}`);
+        if (btn) btn.onclick = () => openTagModal(p);
+      }, 0);
+    }
+    container.appendChild(card);
+  });
+}
+
+// Startup
+window.addEventListener('DOMContentLoaded', () => {
+  initWebSocket();
+  initWebcam();
+});
 
 // --- AUDIO INITIALIZATION ---
 function initAudio() {
@@ -511,17 +786,17 @@ function handleManualPhotoFiles(files) {
 }
 
 function captureLiveWebcamSample() {
-  // Capture current live frame from the video stream canvas or image
-  const imgElement = document.getElementById('live-stream-img');
-  if (!imgElement || !imgElement.complete || imgElement.naturalWidth === 0) {
+  // Capture current frame from the live <video> element (browser webcam)
+  const video = document.getElementById('live-video');
+  if (!video || !video.videoWidth) {
     showToast('⚠️ Live camera feed not available for snapshot');
     return;
   }
   const canvas = document.createElement('canvas');
-  canvas.width = imgElement.naturalWidth;
-  canvas.height = imgElement.naturalHeight;
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
   const ctx = canvas.getContext('2d');
-  ctx.drawImage(imgElement, 0, 0);
+  ctx.drawImage(video, 0, 0);
   const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
   const b64 = dataUrl.split(',')[1];
   if (b64 && manualPhotosList.length < 50) {
@@ -722,115 +997,24 @@ function closeLightbox() {
   document.getElementById('lightbox-modal').style.display = 'none';
 }
 
-// --- POLLING FOR STATUS ---
 async function pollStatus() {
+  // Light poll for secondary UI only (event badge, pane sidebar when WS not yet delivering)
+  // Main telemetry now comes from WebSocket responses (updateTelemetryFromWs)
   try {
     const res = await fetch('/api/status');
     const data = await res.json();
 
-    // Telemetry
-    const fpsElem = document.getElementById('val-fps');
-    if (fpsElem) fpsElem.innerText = data.metrics ? data.metrics.processing_fps.toFixed(1) : '0.0';
-    const latElem = document.getElementById('val-latency');
-    if (latElem) latElem.innerText = data.metrics ? `${data.metrics.end_to_end_latency_ms.toFixed(0)} ms` : '0 ms';
-    const confElem = document.getElementById('val-conf');
-    if (confElem) confElem.innerText = data.layout_confidence ? data.layout_confidence.toFixed(2) : '0.00';
-    const panesElem = document.getElementById('val-panes');
-    if (panesElem) panesElem.innerText = data.mode === 'DIRECT_ROOM_SURVEILLANCE' ? `${data.detected_persons ? data.detected_persons.length : 0} Persons` : data.pane_count;
+    // Update event badge
+    const badge = document.getElementById('event-badge-count');
+    if (badge && data.pane_count !== undefined) badge.innerText = data.pane_count;
 
-    const layoutTag = document.getElementById('layout-tag');
-    if (layoutTag) layoutTag.innerText = data.mode === 'DIRECT_ROOM_SURVEILLANCE' ? 'LIVE SURVEILLANCE' : data.layout_id;
-
-    // Alert Banner
-    const banner = document.getElementById('alert-banner');
-    const bannerText = document.getElementById('alert-text');
-    if (banner && bannerText) {
-      if (data.alerts && data.alerts.length > 0) {
-        banner.style.display = 'flex';
-        bannerText.innerText = data.alerts.join(' | ');
-      } else {
-        banner.style.display = 'none';
-      }
-    }
-
-    // Intrusion announcement trigger
-    if (data.should_announce_audio) {
-      addLogLine('<span style="color: var(--accent-red); font-weight: bold;">🚨 INTRUSION ALERT</span>: Unknown person confirmed after multi-frame analysis.');
-    }
-
-    // Sidebar items
-    const container = document.getElementById('panes-container');
-    const titleText = document.getElementById('panel-title-text');
-    if (container && titleText) {
-      container.innerHTML = '';
-
-      if (data.mode === 'DIRECT_ROOM_SURVEILLANCE') {
+    // Only update sidebar from REST if WebSocket is not delivering results yet
+    if (_lastDetectedPersons.length === 0 && data.detected_persons) {
+      const container = document.getElementById('panes-container');
+      const titleText = document.getElementById('panel-title-text');
+      if (container && titleText && data.mode === 'DIRECT_ROOM_SURVEILLANCE') {
         titleText.innerText = 'Live Persons in Room';
-
-        if (data.detected_persons && data.detected_persons.length > 0) {
-          data.detected_persons.forEach((p, idx) => {
-            const card = document.createElement('div');
-            card.className = 'person-card';
-            if (p.is_known) card.classList.add('known');
-
-            const imgTag = p.snapshot_base64 
-              ? `<img class="person-thumb" src="data:image/jpeg;base64,${p.snapshot_base64}" alt="Face Crop">`
-              : `<div class="person-thumb" style="display:flex;align-items:center;justify-content:center;background:#1e2430;">👤</div>`;
-
-            if (p.is_known) {
-              card.innerHTML = `
-                ${imgTag}
-                <div class="person-info">
-                  <div class="person-header">
-                    <span class="person-name" style="color: var(--accent-green);">AUTHORIZED: ${p.person_name}</span>
-                    <span class="person-tag-badge" style="background: rgba(0, 255, 136, 0.2); color: var(--accent-green);">${p.tag}</span>
-                  </div>
-                  <div class="person-meta">Match Conf: ${p.confidence} | Box: [${p.bbox.join(', ')}]</div>
-                  <div style="margin-top: 4px;">
-                    <button class="btn" style="padding: 2px 8px; font-size: 0.7rem; color: #ff99b3; border-color: rgba(255,51,102,0.3);" onclick="untagPerson('${p.person_id}', '${p.person_name}')">🗑️ Untag</button>
-                  </div>
-                </div>
-              `;
-            } else {
-              card.innerHTML = `
-                ${imgTag}
-                <div class="person-info">
-                  <div class="person-header">
-                    <span class="person-name" style="color: var(--accent-red);">🚨 UNKNOWN PERSON</span>
-                    <span class="person-tag-badge" style="background: rgba(255, 51, 102, 0.2); color: #ff99b3;">INTRUDER</span>
-                  </div>
-                  <div class="person-meta">Conf: ${p.confidence} | Box: [${p.bbox.join(', ')}]</div>
-                  <div style="margin-top: 4px;">
-                    <button class="btn btn-green" style="padding: 4px 10px; font-size: 0.75rem; font-weight: 600;" id="tag-btn-${idx}">🏷️ Identify & Tag Person</button>
-                  </div>
-                </div>
-              `;
-              setTimeout(() => {
-                const btn = document.getElementById(`tag-btn-${idx}`);
-                if (btn) btn.onclick = () => openTagModal(p);
-              }, 0);
-            }
-
-            container.appendChild(card);
-          });
-        } else {
-          container.innerHTML = '<div style="font-size: 0.8rem; color: var(--text-muted); padding: 18px; text-align: center;">Scanning room... No persons currently in view.</div>';
-        }
-      } else {
-        titleText.innerText = 'Discovered Panes';
-        (data.panes || []).forEach(p => {
-          const chip = document.createElement('div');
-          chip.className = 'pane-chip';
-          chip.innerHTML = `
-            <div class="pane-chip-header">
-              <span>${p.pane_id}</span>
-              <span class="${p.is_stable ? 'badge-stable' : 'badge-unstable'}">${p.is_stable ? 'STABLE' : 'STABILIZING'}</span>
-            </div>
-            <div class="pane-label">${p.camera_label}</div>
-            <div class="pane-chip-meta">OCR Conf: ${p.ocr_confidence} | Geom: ${p.geometry_confidence}</div>
-          `;
-          container.appendChild(chip);
-        });
+        renderPersonCards(container, data.detected_persons || []);
       }
     }
 
@@ -838,7 +1022,7 @@ async function pollStatus() {
       addLogLine(`<span class="event-tag">LAYOUT_CHANGE</span>: Automatically detected ${data.layout_id} (${data.pane_count} panes)`);
     }
   } catch (err) {
-    console.error("Poll error:", err);
+    console.error('Poll error:', err);
   }
 }
 
@@ -853,8 +1037,8 @@ async function updateEventBadge() {
   } catch (e) {}
 }
 
-// Periodic update intervals
-setInterval(pollStatus, 500);
-setInterval(updateEventBadge, 2500);
+// Periodic secondary polls (event badge every 3s, status fallback every 2s)
+setInterval(updateEventBadge, 3000);
+setInterval(pollStatus, 2000);
 updateEventBadge();
-addLogLine("Dashboard initialized with Decoupled Frontend & Live Configuration Engine.");
+addLogLine('Dashboard initialized. Opening browser webcam and connecting to AI server…');

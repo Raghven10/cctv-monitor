@@ -1,6 +1,14 @@
-"""Web Server and Live Streaming Dashboard for AI CCTV Physical Display Monitor."""
+"""Web Server and Browser-Webcam Dashboard for AI CCTV Physical Display Monitor.
 
-import asyncio
+Architecture:
+  The browser opens the webcam via getUserMedia(), captures JPEG frames,
+  and streams them to the server over a WebSocket connection at /ws/stream.
+  The server runs face detection & recognition on each frame and returns
+  JSON detections that the browser renders as canvas overlays.
+  No server-side camera hardware or /dev/video* device is required.
+"""
+
+import base64
 import io
 import json
 import time
@@ -8,14 +16,15 @@ from typing import Dict, List, Optional
 import cv2
 import numpy as np
 from pathlib import Path
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from ..config import POCConfig, load_config, save_config
 from ..realtime.pipeline import RealtimePipeline
+from ..video.source import FrameData
 from ..utils.logging import setup_logger
 from ..visualization.renderer import VisualRenderer
 
@@ -110,111 +119,180 @@ STATIC_DIR = Path(__file__).parent / "static"
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-# Global pipeline instance
+# Global pipeline instance — no server-side camera started; browser streams frames via WebSocket
 config = load_config("config/poc.yaml")
 pipeline = RealtimePipeline(config)
 renderer = VisualRenderer()
 
 # Web state
 web_state = {
-    "view_mode": "original",  # Default to live camera view with projected pane boxes
-    "is_webcam": True,
-    "webcam_error": None,
+    "view_mode": "original",
     "last_result": None,
     "frame_count": 0,
+    "connected_clients": 0,
 }
 
-# Auto-start live webcam on startup
-try:
-    if not pipeline.start(auto_open_camera=True):
-        web_state["webcam_error"] = "Camera could not be opened. Check permissions or device index."
-except Exception as e:
-    web_state["webcam_error"] = str(e)
 
-
-def frame_generator():
-    """Generator for MJPEG stream from the live webcam."""
-    global web_state
-    
-    while True:
-        web_state["frame_count"] += 1
-
-        # Continuous live frame acquisition
-        frame_data = pipeline.video_source.buffer.pop_latest(timeout=0.08)
-        if frame_data is None:
-            # When camera is waiting or disconnected
-            waiting_frame = np.full((720, 1280, 3), 15, dtype=np.uint8)
-            cv2.putText(
-                waiting_frame,
-                "WAITING FOR LIVE WEBCAM INPUT...",
-                (280, 340),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.9,
-                (0, 240, 255),
-                2,
-            )
-            err_msg = web_state.get("webcam_error") or "Please ensure external webcam is connected."
-            cv2.putText(
-                waiting_frame,
-                f"Status: {err_msg}",
-                (280, 390),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                (0, 165, 255),
-                1,
-            )
-            _, jpeg = cv2.imencode(".jpg", waiting_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-            yield (
-                b"--frame\r\n"
-                b"Content-Type: image/jpeg\r\n\r\n" + jpeg.tobytes() + b"\r\n"
-            )
-            time.sleep(0.05)
-            continue
-
-        # Process frame automatically through the real-time hot path
-        result = pipeline.process_frame_data(frame_data, view_mode=web_state.get("view_mode"))
-        web_state["last_result"] = result
-
-        # Render real-time live annotations & pane boxes on video
-        annotated = renderer.render(result, view_mode=web_state["view_mode"])
-        disp = cv2.resize(annotated, (1280, 720)) if annotated.shape[1] > 1920 else annotated
-        
-        _, jpeg = cv2.imencode(".jpg", disp, [cv2.IMWRITE_JPEG_QUALITY, 85])
-        yield (
-            b"--frame\r\n"
-            b"Content-Type: image/jpeg\r\n\r\n" + jpeg.tobytes() + b"\r\n"
+def _jpeg_to_frame(jpeg_bytes: bytes, frame_index: int) -> Optional[FrameData]:
+    """Decode a JPEG byte blob (from browser) into a FrameData object for the pipeline."""
+    try:
+        arr = np.frombuffer(jpeg_bytes, dtype=np.uint8)
+        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if img is None:
+            return None
+        return FrameData(
+            frame_index=frame_index,
+            timestamp=time.time(),
+            image=img,
+            width=img.shape[1],
+            height=img.shape[0],
+            capture_fps=0.0,
         )
-        time.sleep(0.03)
+    except Exception as e:
+        logger.warning(f"Failed to decode JPEG from browser: {e}")
+        return None
 
 
-@app.get("/video_feed")
-def video_feed():
-    """MJPEG live video stream."""
-    return StreamingResponse(
-        frame_generator(),
-        media_type="multipart/x-mixed-replace; boundary=frame",
-    )
+def _result_to_dict(result, view_mode: str) -> dict:
+    """Serialize a ProcessedFrameResult to a JSON-safe dict for the browser."""
+    persons_info = [
+        {
+            "person_id": p.person_id or f"person_{idx}",
+            "bbox": list(p.bbox),
+            "confidence": round(p.confidence, 3),
+            "class_name": p.class_name,
+            "is_known": p.is_known,
+            "person_name": p.person_name or "Unknown Person",
+            "tag": p.tag or "Intruder",
+            "snapshot_base64": p.snapshot_base64 or "",
+        }
+        for idx, p in enumerate(result.detected_persons or [])
+    ]
+    metrics = result.metrics
+    return {
+        "frame_index": result.frame_index,
+        "mode": result.mode,
+        "layout_id": result.layout.layout_id,
+        "pane_count": result.layout.pane_count,
+        "layout_confidence": round(result.layout.confidence, 2),
+        "view_mode": view_mode,
+        "alerts": list(result.alerts or []),
+        "detected_persons": persons_info,
+        "should_announce_audio": getattr(result, "should_announce_audio", False),
+        "intrusion_event_reason": getattr(result, "intrusion_event_reason", ""),
+        "metrics": {
+            "processing_fps": round(metrics.processing_fps, 1),
+            "processing_latency_ms": round(metrics.processing_latency_ms, 1),
+            "end_to_end_latency_ms": round(metrics.end_to_end_latency_ms, 1),
+        },
+    }
+
+
+
+@app.websocket("/ws/stream")
+async def websocket_stream(websocket: WebSocket):
+    """Browser-side webcam streaming endpoint.
+
+    The browser captures frames from getUserMedia(), encodes them as JPEG,
+    and sends the raw bytes over this WebSocket. The server decodes each
+    frame, runs face detection + recognition through the pipeline, and
+    returns a JSON payload with bounding boxes and identity labels.
+
+    Message protocol:
+      Browser → Server : binary JPEG bytes (one frame per message)
+      Server → Browser : UTF-8 JSON string with detection results
+    """
+    await websocket.accept()
+    web_state["connected_clients"] += 1
+    frame_index = 0
+    logger.info(f"WebSocket client connected. Active clients: {web_state['connected_clients']}")
+
+    try:
+        while True:
+            # Receive raw JPEG bytes from the browser
+            jpeg_bytes = await websocket.receive_bytes()
+
+            frame_index += 1
+            web_state["frame_count"] += 1
+
+            frame_data = _jpeg_to_frame(jpeg_bytes, frame_index)
+            if frame_data is None:
+                await websocket.send_text(json.dumps({"error": "Invalid frame", "frame_index": frame_index}))
+                continue
+
+            # Run full detection + recognition pipeline
+            try:
+                result = pipeline.process_frame_data(frame_data, view_mode=web_state.get("view_mode", "original"))
+                web_state["last_result"] = result
+                payload = _result_to_dict(result, web_state["view_mode"])
+            except Exception as exc:
+                logger.error(f"Pipeline error on frame {frame_index}: {exc}")
+                payload = {"error": str(exc), "frame_index": frame_index, "detected_persons": [], "alerts": []}
+
+            await websocket.send_text(json.dumps(payload))
+
+    except WebSocketDisconnect:
+        logger.info("WebSocket client disconnected.")
+    except Exception as exc:
+        logger.error(f"WebSocket error: {exc}")
+    finally:
+        web_state["connected_clients"] = max(0, web_state["connected_clients"] - 1)
+
+
+class FrameRequest(BaseModel):
+    """Single JPEG frame as base64 for HTTP-based frame processing."""
+    image_base64: str
+    view_mode: str = "original"
+
+
+@app.post("/api/process_frame")
+def process_frame_http(req: FrameRequest):
+    """Process a single JPEG frame sent as base64 via HTTP POST.
+
+    Useful for non-WebSocket clients or debugging. For live streaming,
+    prefer the WebSocket endpoint /ws/stream which has lower overhead.
+    """
+    try:
+        jpeg_bytes = base64.b64decode(req.image_base64)
+    except Exception:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Invalid base64 image data")
+
+    frame_index = web_state["frame_count"] + 1
+    frame_data = _jpeg_to_frame(jpeg_bytes, frame_index)
+    if frame_data is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Could not decode JPEG image")
+
+    web_state["frame_count"] += 1
+    result = pipeline.process_frame_data(frame_data, view_mode=req.view_mode)
+    web_state["last_result"] = result
+    return _result_to_dict(result, req.view_mode)
 
 
 @app.get("/api/status")
 def get_status():
-    """Returns real-time telemetry and automatically discovered layout metadata."""
+    """Returns real-time telemetry and pipeline status.
+
+    When no browser is connected (no frames received yet), returns
+    'waiting' status. Once the browser opens the webcam and starts
+    streaming frames via /ws/stream, status becomes 'active'.
+    """
     res = web_state.get("last_result")
+    connected = web_state.get("connected_clients", 0)
     if res is None:
-        alerts = [f"WEBCAM_DISCONNECTED: {web_state['webcam_error']}"] if web_state.get("webcam_error") else ["INITIALIZING: Connecting to webcam..."]
         return {
-            "status": "initializing",
-            "alerts": alerts,
+            "status": "waiting" if connected == 0 else "initializing",
+            "connected_clients": connected,
+            "message": "Open the dashboard in a browser to start — webcam runs in the browser, not the server.",
+            "alerts": [],
             "pane_count": 0,
-            "layout_id": "searching...",
+            "layout_id": "pending",
             "layout_confidence": 0.0,
             "metrics": {
                 "processing_fps": 0.0,
-                "capture_fps": 0.0,
-                "frame_age_ms": 0.0,
                 "processing_latency_ms": 0.0,
                 "end_to_end_latency_ms": 0.0,
-                "queue_depth": 0,
             },
             "panes": [],
         }
@@ -236,8 +314,6 @@ def get_status():
 
     metrics = res.metrics
     active_alerts = list(res.alerts or [])
-    if web_state.get("webcam_error"):
-        active_alerts.append(f"WEBCAM_ERROR: {web_state['webcam_error']}")
 
     persons_info = [
         {
@@ -255,6 +331,8 @@ def get_status():
 
     return {
         "frame_index": res.frame_index,
+        "status": "active",
+        "connected_clients": web_state.get("connected_clients", 0),
         "mode": res.mode,
         "layout_id": res.layout.layout_id,
         "pane_count": res.layout.pane_count,
@@ -266,12 +344,9 @@ def get_status():
         "should_announce_audio": getattr(res, "should_announce_audio", False),
         "intrusion_event_reason": getattr(res, "intrusion_event_reason", ""),
         "metrics": {
-            "processing_fps": metrics.processing_fps,
-            "capture_fps": metrics.capture_fps,
-            "frame_age_ms": metrics.frame_age_ms,
-            "processing_latency_ms": metrics.processing_latency_ms,
-            "end_to_end_latency_ms": metrics.end_to_end_latency_ms,
-            "queue_depth": metrics.queue_depth,
+            "processing_fps": round(metrics.processing_fps, 1),
+            "processing_latency_ms": round(metrics.processing_latency_ms, 1),
+            "end_to_end_latency_ms": round(metrics.end_to_end_latency_ms, 1),
         },
         "panes": panes_info,
     }

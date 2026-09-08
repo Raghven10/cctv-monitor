@@ -22,14 +22,8 @@ services:
       - cctv_data:/app/data
       # Mount config as read-write so the config update API can save changes
       - ./config:/app/config
-    # NOTE: On Ubuntu/Linux target machine, use docker-compose.linux.yml override
-    # to pass webcam devices and enable NVIDIA GPU support:
-    #   docker compose -f docker-compose.yml -f docker-compose.linux.yml up -d
-    #
-    # devices:
-    #   - /dev/video0:/dev/video0
-    # group_add:
-    #   - video
+    # NOTE: No /dev/video* device passthrough needed.
+    # The webcam runs in the user's browser via getUserMedia() — not on the server.
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8080/api/status" ]
       interval: 30s

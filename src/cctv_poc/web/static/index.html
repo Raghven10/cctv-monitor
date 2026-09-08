@@ -63,8 +63,22 @@
         <span id="alert-text">ALERT ACTIVE</span>
       </div>
 
-      <div class="video-card">
-        <img id="live-stream" src="/video_feed" alt="Live CCTV Monitoring Feed">
+      <div class="video-card" style="position: relative;">
+        <!-- Browser webcam video feed via getUserMedia() -->
+        <video id="live-video" autoplay playsinline muted
+          style="width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 8px;"></video>
+        <!-- Canvas overlay for face bounding boxes & identity labels -->
+        <canvas id="detection-canvas"
+          style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"></canvas>
+        <!-- Camera permission / status banner -->
+        <div id="camera-status-banner"
+          style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                 background: rgba(10,14,26,0.88); border: 1px solid rgba(0,240,255,0.3);
+                 border-radius: 10px; padding: 24px 32px; text-align: center;
+                 color: var(--text-secondary); font-family: 'JetBrains Mono', monospace; font-size: 0.85rem;">
+          <div style="font-size: 2rem; margin-bottom: 8px;">📷</div>
+          <div id="camera-status-text">Requesting camera permission…</div>
+        </div>
       </div>
 
       <div class="telemetry-grid">
