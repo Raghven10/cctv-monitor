@@ -1,0 +1,42 @@
+services:
+  cctv-monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cctv-monitor:airgapped-latest
+    container_name: cctv-monitor-app
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DATABASE_URL=sqlite:////app/data/cctv_events.db
+      - EVENTS_STORAGE_PATH=/app/data/events
+      - KNOWN_PERSONS_STORAGE_PATH=/app/data/known_persons.json
+      # Optional: In-network VLM / LLM endpoint in your airgapped environment
+      # - OPENAI_API_KEY=sk-local
+      # - VLM_BASE_URL=http://ollama-service:11434/v1
+      # - VLM_MODEL=qwen2.5-vl
+    volumes:
+      # Persistent storage for events, registered identities, and output data
+      - cctv_data:/app/data
+      # Mount config as read-write so the config update API can save changes
+      - ./config:/app/config
+    # NOTE: On Ubuntu/Linux target machine, use docker-compose.linux.yml override
+    # to pass webcam devices and enable NVIDIA GPU support:
+    #   docker compose -f docker-compose.yml -f docker-compose.linux.yml up -d
+    #
+    # devices:
+    #   - /dev/video0:/dev/video0
+    # group_add:
+    #   - video
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/api/status" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  cctv_data:
+    name: cctv_airgapped_data

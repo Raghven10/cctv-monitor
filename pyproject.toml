@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cctv-poc"
+version = "0.1.0"
+description = "AI CCTV Physical Display Monitoring POC"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26.0",
+    "opencv-python>=4.9.0.80",
+    "pyyaml>=6.0.1",
+    "pydantic>=2.6.0",
+    "pydantic-settings>=2.2.0",
+    "pillow>=10.0.0",
+    "pytesseract>=0.3.10",
+    "sqlalchemy>=2.0.0",
+    "alembic>=1.13.0",
+    "psycopg2-binary>=2.9.9",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

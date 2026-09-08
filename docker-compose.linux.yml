@@ -1,0 +1,47 @@
+# ==============================================================================
+# Ubuntu 24.04 / Linux Production Override
+# ==============================================================================
+# Use this file on the target Ubuntu machine to enable:
+#   - Webcam / CCTV camera device passthrough
+#   - NVIDIA GPU acceleration for ONNX face recognition models
+#
+# USAGE:
+#   docker compose -f docker-compose.yml -f docker-compose.linux.yml up -d
+#
+# To check which camera devices are present on the target machine:
+#   ls -la /dev/video*
+# Add more /dev/video* entries below if you have multiple CCTV cameras.
+# ==============================================================================
+
+services:
+  cctv-monitor:
+    # --- Webcam / CCTV Camera Devices ---
+    # Pass host /dev/video* devices into the container
+    devices:
+      - /dev/video0:/dev/video0
+      # Uncomment below if you have additional cameras:
+      # - /dev/video1:/dev/video1
+      # - /dev/video2:/dev/video2
+      # - /dev/video3:/dev/video3
+
+    # Give the container access to the Linux 'video' group
+    group_add:
+      - video
+
+    # --- NVIDIA GPU Acceleration ---
+    # Enables CUDAExecutionProvider for ONNX Runtime (ArcFace, YuNet, SFace)
+    # Requires: nvidia-container-toolkit installed on the host
+    #   sudo apt-get install -y nvidia-container-toolkit
+    #   sudo systemctl restart docker
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    # Pass CUDA visible devices environment variable
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,video,utility

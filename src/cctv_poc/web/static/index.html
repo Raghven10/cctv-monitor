@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI CCTV Physical Display Monitoring Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+  <!-- Top Navigation Header -->
+  <header>
+    <div class="brand">
+      <div class="logo-badge">AI</div>
+      <div>
+        <div class="brand-title">CCTV Physical Display Monitor</div>
+        <div class="brand-subtitle">Real-Time Hot Path & Identity Recognition</div>
+      </div>
+    </div>
+
+    <!-- Main Navigation Tabs -->
+    <nav class="nav-tabs">
+      <button class="nav-tab active" id="tab-btn-monitor" onclick="switchMainTab('monitor')">
+        🎥 Live Monitoring
+      </button>
+      <button class="nav-tab" id="tab-btn-events" onclick="openEventsModal()">
+        📜 Activity Log <span id="event-badge-count" class="badge-counter">0</span>
+      </button>
+      <button class="nav-tab" id="tab-btn-identities" onclick="openIdentitiesModal()">
+        👤 Known Person Registry
+      </button>
+      <button class="nav-tab" id="tab-btn-config" onclick="switchMainTab('config')">
+        ⚙️ System Configuration
+      </button>
+    </nav>
+
+    <!-- Quick Actions Bar -->
+    <div class="controls-bar">
+      <button class="btn" id="btn-test-alarm" onclick="testAlarmManual()" style="background: rgba(255, 51, 102, 0.15); border-color: var(--accent-red); color: #ff99b3;">
+        🚨 Test Buzzer & Voice
+      </button>
+      <button class="btn active" id="btn-audio-toggle" onclick="toggleAudio()" style="border-color: rgba(0, 240, 255, 0.4);">
+        🔊 Alarm Audio: ON
+      </button>
+      <button class="btn" id="btn-view-toggle" onclick="toggleView()">
+        Perspective View: Original
+      </button>
+    </div>
+  </header>
+
+  <!-- Notification Toast -->
+  <div id="toast" class="toast"></div>
+
+  <!-- TAB 1: Live Monitoring View -->
+  <main id="view-monitor" class="view-section active">
+    <div class="stream-container">
+      <!-- Live Alert Banner -->
+      <div id="alert-banner" style="display: none; background: rgba(255, 51, 102, 0.15); border: 1px solid var(--accent-red); border-radius: 8px; padding: 12px 18px; color: #ff99b3; font-weight: 600; display: flex; align-items: center; gap: 10px; box-shadow: 0 0 15px rgba(255, 51, 102, 0.2); animation: pulseAlert 1s infinite alternate;">
+        <span style="font-size: 1.4rem;">🚨</span>
+        <span id="alert-text">ALERT ACTIVE</span>
+      </div>
+
+      <div class="video-card">
+        <img id="live-stream" src="/video_feed" alt="Live CCTV Monitoring Feed">
+      </div>
+
+      <div class="telemetry-grid">
+        <div class="metric-card">
+          <div class="metric-label">Processing FPS</div>
+          <div class="metric-value" id="val-fps">0.0</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">End-to-End Latency</div>
+          <div class="metric-value" id="val-latency">0 ms</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Active Entities</div>
+          <div class="metric-value" id="val-panes">0</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Layout Confidence</div>
+          <div class="metric-value" id="val-conf">0.00</div>
+        </div>
+      </div>
+    </div>
+
+    <aside class="sidebar">
+      <div class="panel">
+        <div class="panel-title">
+          <span id="panel-title-text">Live Persons & Identities</span>
+          <span id="layout-tag" style="font-size: 0.75rem; color: var(--accent-cyan); font-family: 'JetBrains Mono', monospace;">LIVE SURVEILLANCE</span>
+        </div>
+        <div class="pane-grid" id="panes-container">
+          <!-- Dynamically populated with detected person cards or panes -->
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">
+          <span>Real-Time Alerts & Events</span>
+          <span style="font-size: 0.7rem; color: var(--accent-green);">● LIVE</span>
+        </div>
+        <div class="event-log" id="event-log">
+          <!-- Event log stream -->
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- TAB 2: Full System Configuration & Settings View -->
+  <section id="view-config" class="view-section" style="display: none;">
+    <div class="config-wrapper">
+      <div class="config-header">
+        <div>
+          <h1 class="config-main-title">⚙️ System Configuration & Pipeline Settings</h1>
+          <p class="config-subtitle">Configure real-time biometrics, detection models, physical monitor parameters, audio alerts, and persistence.</p>
+        </div>
+        <div class="config-header-actions">
+          <button class="btn btn-secondary" onclick="resetConfiguration()">🔄 Reset to Defaults</button>
+          <button class="btn btn-primary" onclick="saveConfiguration()">💾 Save & Apply Live</button>
+        </div>
+      </div>
+
+      <div class="config-grid">
+        <!-- 1. AI Biometrics & Face Recognition -->
+        <div class="config-card">
+          <div class="config-card-header">
+            <div class="config-card-icon">🧠</div>
+            <div>
+              <div class="config-card-title">AI Biometrics & Face Recognition</div>
+              <div class="config-card-desc">InsightFace ArcFace ResNet-50 512-d angular metric engine</div>
+            </div>
+          </div>
+          <div class="config-card-body">
+            <div class="form-group">
+              <div class="form-label-row">
+                <label for="cfg-biometrics-threshold">Cosine Similarity Threshold</label>
+                <span class="range-val-badge" id="val-biometrics-threshold">0.48</span>
+              </div>
+              <input type="range" class="form-range" id="cfg-biometrics-threshold" min="0.30" max="0.75" step="0.01" value="0.48" oninput="updateRangeLabel('biometrics-threshold', this.value)">
+              <div class="form-help">Lower = more permissive (allows dark/angled faces); Higher = stricter authentication. (Recommended: 0.48 - 0.52).</div>
+            </div>
+
+            <div class="form-group">
+              <label for="cfg-biometrics-model">Face Embedding Model</label>
+              <select class="form-select" id="cfg-biometrics-model">
+                <option value="InsightFace ArcFace ResNet-50 (512-d)">InsightFace ArcFace ResNet-50 (512-d Deep Metric)</option>
+                <option value="OpenCV SFace 128-d">OpenCV SFace (128-d Fallback)</option>
+              </select>
+            </div>
+
+            <div class="form-group-toggle">
+              <div>
+                <div class="toggle-title">5-Point Landmark Similarity Alignment</div>
+                <div class="form-help">Aligns eyes, nose tip, and mouth corners to canonical 112×112 plane.</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="cfg-biometrics-alignment" checked>
+                <span class="slider"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. Face & Person Neural Detector -->
+        <div class="config-card">
+          <div class="config-card-header">
+            <div class="config-card-icon">👤</div>
+            <div>
+              <div class="config-card-title">Neural Face & Person Detector</div>
+              <div class="config-card-desc">OpenCV YuNet Deep Neural Network Detector</div>
+            </div>
+          </div>
+          <div class="config-card-body">
+            <div class="form-group">
+              <div class="form-label-row">
+                <label for="cfg-detection-score">Face Detection Confidence Threshold</label>
+                <span class="range-val-badge" id="val-detection-score">0.70</span>
+              </div>
+              <input type="range" class="form-range" id="cfg-detection-score" min="0.40" max="0.95" step="0.05" value="0.70" oninput="updateRangeLabel('detection-score', this.value)">
+              <div class="form-help">Minimum neural score to consider a face candidate (rejects furniture/tables).</div>
+            </div>
+
+            <div class="form-group">
+              <div class="form-label-row">
+                <label for="cfg-detection-nms">NMS Overlap Threshold</label>
+                <span class="range-val-badge" id="val-detection-nms">0.30</span>
+              </div>
+              <input type="range" class="form-range" id="cfg-detection-nms" min="0.10" max="0.60" step="0.05" value="0.30" oninput="updateRangeLabel('detection-nms', this.value)">
+              <div class="form-help">Suppresses duplicate overlapping bounding boxes for the same person.</div>
+            </div>
+
+            <div class="form-group">
+              <div class="form-label-row">
+                <label for="cfg-detection-minsize">Minimum Face Dimension (px)</label>
+                <span class="range-val-badge" id="val-detection-minsize">35 px</span>
+              </div>
+              <input type="range" class="form-range" id="cfg-detection-minsize" min="20" max="100" step="5" value="35" oninput="updateRangeLabel('detection-minsize', this.value + ' px')">
+              <div class="form-help">Rejects microscopic noise artifacts smaller than this pixel width.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. Intrusion Alerts & Voice Announcements -->
+        <div class="config-card">
+          <div class="config-card-header">
+            <div class="config-card-icon">🚨</div>
+            <div>
+              <div class="config-card-title">Intrusion Alerts & Announcements</div>
+              <div class="config-card-desc">Multi-frame temporal analysis & anti-spam gating</div>
+            </div>
+          </div>
+          <div class="config-card-body">
+            <div class="form-group">
+              <div class="form-label-row">
+                <label for="cfg-alert-frames">Multi-Frame Confirmation Threshold</label>
+                <span class="range-val-badge" id="val-alert-frames">5 frames</span>
+              </div>
+              <input type="range" class="form-range" id="cfg-alert-frames" min="1" max="15" step="1" value="5" oninput="updateRangeLabel('alert-frames', this.value + ' frames')">
+              <div class="form-help">Consecutive positive frames required before raising alarm (eliminates single-frame flickers).</div>
+            </div>
+
+            <div class="form-group">
+              <div class="form-label-row">
+                <label for="cfg-alert-cooldown">Room Clearance Cooldown (Hysteresis)</label>
+                <span class="range-val-badge" id="val-alert-cooldown">6.0s</span>
+              </div>
+              <input type="range" class="form-range" id="cfg-alert-cooldown" min="1.0" max="20.0" step="0.5" value="6.0" oninput="updateRangeLabel('alert-cooldown', this.value + 's')">
+              <div class="form-help">Seconds room must stay completely clear before resetting intrusion gate for next entry.</div>
+            </div>
+
+            <div class="form-group-toggle">
+              <div>
+                <div class="toggle-title">Spoken Voice Announcement (TTS)</div>
+                <div class="form-help">Spoken alert message triggered once upon confirmed intrusion.</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="cfg-alert-voice" checked>
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div class="form-group-toggle">
+              <div>
+                <div class="toggle-title">Host Audio Buzzer / Siren</div>
+                <div class="form-help">Hardware beep/siren alert tone.</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="cfg-alert-buzzer" checked>
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div class="form-group">
+              <label for="cfg-alert-text">Voice Announcement Phrase</label>
+              <input type="text" class="form-input" id="cfg-alert-text" value="Unknown person detected!">
+            </div>
+          </div>
+        </div>
+
+        <!-- 4. Physical Monitor Display Discovery -->
+        <div class="config-card">
+          <div class="config-card-header">
+            <div class="config-card-icon">🖥️</div>
+            <div>
+              <div class="config-card-title">Physical Display & Monitor Discovery</div>
+              <div class="config-card-desc">Bezel localization, perspective homography & area filters</div>
+            </div>
+          </div>
+          <div class="config-card-body">
+            <div class="form-group-toggle">
+              <div>
+                <div class="toggle-title">Automatic Display Detection</div>
+                <div class="form-help">Locate physical monitor edges in camera view.</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="cfg-display-autodetect" checked>
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div class="form-group">
+              <div class="form-label-row">
+                <label for="cfg-display-minarea">Minimum Screen Area Fraction</label>
+                <span class="range-val-badge" id="val-display-minarea">12%</span>
+              </div>
+              <input type="range" class="form-range" id="cfg-display-minarea" min="0.05" max="0.60" step="0.01" value="0.12" oninput="updateRangeLabel('display-minarea', Math.round(this.value * 100) + '%')">
+              <div class="form-help">Allows detecting smaller screens/laptops in view (Default: 12%).</div>
+            </div>
+
+            <div class="form-group">
+              <label for="cfg-display-calibmode">Calibration Mode</label>
+              <select class="form-select" id="cfg-display-calibmode">
+                <option value="assisted">Assisted (Auto with Stored Fallback)</option>
+                <option value="auto">Pure Auto Computer Vision</option>
+                <option value="manual">Manual Corner Override</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="cfg-display-targetres">Target Rectification Resolution</label>
+              <select class="form-select" id="cfg-display-targetres">
+                <option value="3840x2160">3840 × 2160 (4K UHD Master)</option>
+                <option value="1920x1080">1920 × 1080 (1080p FHD Standard)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- 5. Dynamic CCTV Layout & Grid Discovery -->
+        <div class="config-card">
+          <div class="config-card-header">
+            <div class="config-card-icon">📐</div>
+            <div>
+              <div class="config-card-title">Dynamic CCTV Grid & Layout Discovery</div>
+              <div class="config-card-desc">Separator projection analysis without hardcoded assumptions</div>
+            </div>
+          </div>
+          <div class="config-card-body">
+            <div class="form-group-toggle">
+              <div>
+                <div class="toggle-title">Dynamic Grid Inference</div>
+                <div class="form-help">Automatically infer 1x1, 2x2, 3x3, 4x4, 2x3 grids.</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="cfg-layout-dynamic" checked>
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div class="form-group">
+              <div class="form-label-row">
+                <label for="cfg-layout-stability">Layout Stability Frames</label>
+                <span class="range-val-badge" id="val-layout-stability">10 frames</span>
+              </div>
+              <input type="range" class="form-range" id="cfg-layout-stability" min="3" max="30" step="1" value="10" oninput="updateRangeLabel('layout-stability', this.value + ' frames')">
+              <div class="form-help">Frames required to stabilize and lock new multi-pane grid layout.</div>
+            </div>
+
+            <div class="form-group">
+              <label for="cfg-layout-aspect">Expected Pane Aspect Ratio</label>
+              <select class="form-select" id="cfg-layout-aspect">
+                <option value="auto">Auto (Adaptive)</option>
+                <option value="16:9">16:9 (Widescreen)</option>
+                <option value="4:3">4:3 (Traditional)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- 6. Video Acquisition & Device -->
+        <div class="config-card">
+          <div class="config-card-header">
+            <div class="config-card-icon">📹</div>
+            <div>
+              <div class="config-card-title">Video Acquisition & Camera</div>
+              <div class="config-card-desc">Webcam device ID, frame rate & buffer management</div>
+            </div>
+          </div>
+          <div class="config-card-body">
+            <div class="form-group">
+              <label for="cfg-video-source">Source Type</label>
+              <select class="form-select" id="cfg-video-source">
+                <option value="webcam">Live Webcam</option>
+                <option value="file">Pre-Recorded Video File</option>
+                <option value="rtsp">RTSP / Network IP Stream</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="cfg-video-device">Camera Device Index / Stream URI</label>
+              <input type="text" class="form-input" id="cfg-video-device" value="0">
+              <div class="form-help">Device index (0 = default webcam) or file path / RTSP URL.</div>
+            </div>
+
+            <div class="form-group">
+              <div class="form-label-row">
+                <label for="cfg-video-fps">Requested Acquisition FPS</label>
+                <span class="range-val-badge" id="val-video-fps">30 FPS</span>
+              </div>
+              <input type="range" class="form-range" id="cfg-video-fps" min="10" max="60" step="5" value="30" oninput="updateRangeLabel('video-fps', this.value + ' FPS')">
+            </div>
+          </div>
+        </div>
+
+        <!-- 7. OCR & VLM AI Camera Labeling -->
+        <div class="config-card">
+          <div class="config-card-header">
+            <div class="config-card-icon">🔤</div>
+            <div>
+              <div class="config-card-title">OCR & VLM Camera Identification</div>
+              <div class="config-card-desc">Automatic camera label reading and multi-modal fusion</div>
+            </div>
+          </div>
+          <div class="config-card-body">
+            <div class="form-group-toggle">
+              <div>
+                <div class="toggle-title">OCR Text Engine</div>
+                <div class="form-help">Extract on-screen camera labels (CAM 01, Entrance, etc.).</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="cfg-ocr-enabled" checked>
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div class="form-group">
+              <div class="form-label-row">
+                <label for="cfg-ocr-interval">OCR Sample Interval (Frames)</label>
+                <span class="range-val-badge" id="val-ocr-interval">15 frames</span>
+              </div>
+              <input type="range" class="form-range" id="cfg-ocr-interval" min="5" max="60" step="5" value="15" oninput="updateRangeLabel('ocr-interval', this.value + ' frames')">
+            </div>
+
+            <div class="form-group">
+              <label for="cfg-vlm-provider">VLM Validation Provider</label>
+              <select class="form-select" id="cfg-vlm-provider">
+                <option value="mock">Built-in Semantic Analyzer (Local Mock)</option>
+                <option value="gemini">Google Gemini Multi-Modal API</option>
+                <option value="openai">OpenAI Vision API</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- 8. Database & Event Storage -->
+        <div class="config-card">
+          <div class="config-card-header">
+            <div class="config-card-icon">💾</div>
+            <div>
+              <div class="config-card-title">Database & Event Persistence</div>
+              <div class="config-card-desc">PostgreSQL / SQLite activity logging & snapshot archive</div>
+            </div>
+          </div>
+          <div class="config-card-body">
+            <div class="form-group-toggle">
+              <div>
+                <div class="toggle-title">Save Unusual Event Frames & Snapshots</div>
+                <div class="form-help">Stores full-resolution JPEG frames for every intrusion and layout shift.</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="cfg-output-snapshots" checked>
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div class="form-group">
+              <label for="cfg-output-dir">Snapshot Storage Directory</label>
+              <input type="text" class="form-input" id="cfg-output-dir" value="data/output">
+            </div>
+
+            <div class="form-group">
+              <label for="cfg-output-jsonl">JSONL Telemetry Log File</label>
+              <input type="text" class="form-input" id="cfg-output-jsonl" value="data/output/results.jsonl">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom Save Action Bar -->
+      <div class="config-footer-bar">
+        <div>
+          <span style="color: var(--text-muted); font-size: 0.85rem;">Changes are validated with Pydantic and applied live to the running pipeline immediately.</span>
+        </div>
+        <div style="display: flex; gap: 12px;">
+          <button class="btn btn-secondary" onclick="resetConfiguration()">🔄 Reset to Defaults</button>
+          <button class="btn btn-primary" onclick="saveConfiguration()" style="padding: 10px 24px; font-size: 0.95rem;">💾 Save & Apply Live</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Tag & Identify Modal -->
+  <div class="modal-overlay" id="tag-modal">
+    <div class="modal-card">
+      <div class="modal-title">🏷️ Identify & Authorize Person</div>
+      
+      <div class="modal-preview">
+        <img id="modal-person-img" class="modal-img" src="" alt="Face Crop">
+        <div>
+          <div style="font-size: 0.85rem; font-weight: 600;">Detected Face / Person Track</div>
+          <div style="font-size: 0.75rem; color: var(--text-muted);" id="modal-box-info">Box: [0, 0, 0, 0]</div>
+          <div style="font-size: 0.75rem; color: var(--accent-cyan); margin-top: 3px;" id="modal-track-info">⚡ Enrolling with rolling 50-frame temporal track buffer</div>
+        </div>
+      </div>
+
+      <div class="input-group">
+        <label class="input-label" for="tag-person-name">Full Name / Identifier</label>
+        <input class="text-input" id="tag-person-name" type="text" placeholder="e.g. Rahul Sharma, Security Officer 1" autofocus>
+      </div>
+
+      <div class="input-group">
+        <label class="input-label" for="tag-person-role">Role / Tag</label>
+        <input class="text-input" id="tag-person-role" type="text" placeholder="e.g. Authorized, Admin, Employee, Family" value="Authorized">
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn" onclick="closeTagModal()">Cancel</button>
+        <button class="btn btn-green" onclick="submitTagPerson()">✅ Authorize & Mark Known (Multi-Frame)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Manual Person Registration Modal -->
+  <div class="modal-overlay" id="manual-register-modal">
+    <div class="modal-card" style="max-width: 520px;">
+      <div class="modal-title">
+        <span>➕ Manual Person Biometric Registration</span>
+      </div>
+
+      <div class="input-group">
+        <label class="input-label" for="manual-person-name">Full Name / Identity *</label>
+        <input class="text-input" id="manual-person-name" type="text" placeholder="e.g. Priya Patel, Ops Manager" autofocus>
+      </div>
+
+      <div class="input-group">
+        <label class="input-label" for="manual-person-role">Role / Tag</label>
+        <select class="form-select" id="manual-person-role">
+          <option value="Authorized">Authorized</option>
+          <option value="Employee">Employee</option>
+          <option value="Admin">Admin</option>
+          <option value="VIP">VIP</option>
+          <option value="Resident">Resident</option>
+          <option value="Contractor">Contractor</option>
+        </select>
+      </div>
+
+      <div class="input-group">
+        <label class="input-label">Face Photos / Pose Samples (Upload 1 to 50 Images)</label>
+        <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+          <input type="file" id="manual-person-file-input" accept="image/*" multiple style="display: none;" onchange="handleManualPhotoFiles(this.files)">
+          <button class="btn btn-cyan" style="flex: 1; font-size: 0.8rem; padding: 7px 12px;" onclick="document.getElementById('manual-person-file-input').click()">
+            📁 Choose Photo(s)...
+          </button>
+          <button class="btn" style="flex: 1; font-size: 0.8rem; padding: 7px 12px;" onclick="captureLiveWebcamSample()">
+            📷 Snapshot Live Feed
+          </button>
+        </div>
+        <div id="manual-photos-preview" style="display: flex; gap: 8px; flex-wrap: wrap; max-height: 140px; overflow-y: auto; padding: 8px; background: rgba(0,0,0,0.3); border: 1px dashed var(--card-border); border-radius: 6px;">
+          <div style="color: var(--text-muted); font-size: 0.78rem; text-align: center; width: 100%; padding: 12px;">No photos selected. Upload face photos or click "Snapshot Live Feed".</div>
+        </div>
+        <div style="font-size: 0.74rem; color: var(--text-muted); margin-top: 4px;">
+          Tip: Uploading multiple photos with slight head turns provides 50-pose gallery coverage.
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn" onclick="closeManualRegisterModal()">Cancel</button>
+        <button class="btn btn-green" id="manual-register-submit-btn" onclick="submitManualRegister()">💾 Enroll Identity in DB</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Known Person Registry Modal -->
+  <div class="modal-overlay" id="identities-modal">
+    <div class="events-modal-card">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--card-border); padding-bottom: 12px;">
+        <div class="modal-title">
+          <span>👤 Known Person & Authorized Biometrics Registry</span>
+          <span id="identities-modal-count" style="font-size: 0.8rem; font-weight: 600; color: var(--accent-cyan);">(0 Active Profiles)</span>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-green" style="padding: 4px 10px; font-size: 0.78rem;" onclick="openManualRegisterModal()">➕ Register Person Manually</button>
+          <button class="btn" style="padding: 4px 10px; font-size: 0.78rem; background: rgba(255, 51, 102, 0.2); border-color: var(--accent-red); color: #ff99b3;" onclick="clearAllIdentities()">🗑️ Clear All Profiles</button>
+          <button class="btn" style="padding: 4px 10px; font-size: 0.78rem;" onclick="closeIdentitiesModal()">✕ Close</button>
+        </div>
+      </div>
+      <div class="events-grid" id="identities-list-container" style="max-height: 480px; overflow-y: auto;">
+        <!-- Registered persons loaded dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Activity Log & Unusual Frames Modal -->
+  <div class="modal-overlay" id="events-modal">
+    <div class="events-modal-card">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--card-border); padding-bottom: 12px;">
+        <div class="modal-title">
+          <span>📜 Unusual Frames & Activity Log</span>
+          <span id="events-modal-count" style="font-size: 0.8rem; font-weight: 600; color: var(--accent-cyan);">(0 Events Saved)</span>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn" style="padding: 4px 10px; font-size: 0.78rem; background: rgba(255, 51, 102, 0.2); border-color: var(--accent-red); color: #ff99b3;" onclick="clearAllEventsLog()">🗑️ Clear Log</button>
+          <button class="btn" style="padding: 4px 10px; font-size: 0.78rem;" onclick="closeEventsModal()">✕ Close</button>
+        </div>
+      </div>
+
+      <!-- Filters -->
+      <div style="display: flex; gap: 8px; align-items: center;">
+        <button class="filter-btn active" id="filter-all" onclick="setEventFilter('all')">All Events</button>
+        <button class="filter-btn" id="filter-crit" onclick="setEventFilter('CRITICAL')">🚨 Intrusions (Critical)</button>
+        <button class="filter-btn" id="filter-layout" onclick="setEventFilter('LAYOUT_CHANGED')">📐 Layout Changes</button>
+        <button class="filter-btn" id="filter-warn" onclick="setEventFilter('WARNING')">⚠️ Warnings</button>
+      </div>
+
+      <!-- Events List -->
+      <div class="events-grid" id="events-list-container">
+        <!-- Event cards loaded dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Lightbox Snapshot Viewer -->
+  <div class="lightbox-overlay" id="lightbox-modal" onclick="closeLightbox()">
+    <img id="lightbox-img" class="lightbox-img" src="" alt="Full Snapshot">
+    <div id="lightbox-caption" style="color: #fff; font-size: 0.9rem; font-weight: 600; background: rgba(0,0,0,0.6); padding: 6px 14px; border-radius: 6px;"></div>
+    <div style="font-size: 0.75rem; color: var(--text-muted);">Click anywhere to close</div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

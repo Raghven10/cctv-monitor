@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+.env
+
+# ONNX model weights (large binary files — bundle separately)
+*.onnx
+
+# SQLite databases
+*.db
+*.db-shm
+*.db-wal
+
+# App runtime data (events, snapshots, output)
+data/events/
+data/output/
+data/snapshots/
+
+# Config overrides with secrets (keep poc.yaml template)
+config/calibration.json
+
+# Docker
+.dockerignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Logs
+*.log
+logs/
+
+# Coverage / test artifacts
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+
+# Distribution
+*.tar.gz
+*.tar

@@ -1,0 +1,67 @@
+application:
+  name: cctv-monitor-poc
+  log_level: INFO
+video:
+  source_type: webcam
+  device: 0
+  requested_width: 3840
+  requested_height: 2160
+  requested_fps: 30
+  buffer_size: 2
+display:
+  auto_detect: true
+  calibration_mode: assisted
+  calibration_file: config/calibration.json
+  min_area_fraction: 0.12
+  target_width: 3840
+  target_height: 2160
+layout:
+  dynamic: true
+  min_panes: 1
+  max_panes: 64
+  stability_frames: 10
+  expected_aspect_ratio: auto
+  edge_threshold: 30
+  gutter_min_width: 2
+detection:
+  score_threshold: 0.7
+  nms_threshold: 0.3
+  min_face_size: 35
+biometrics:
+  match_threshold: 0.48
+  model_name: InsightFace ArcFace ResNet-50 (512-d)
+  strict_landmark_alignment: true
+alert:
+  min_consecutive_frames: 5
+  clear_cooldown_seconds: 6.0
+  voice_enabled: true
+  buzzer_enabled: true
+  announcement_text: Unknown person detected!
+ocr:
+  enabled: true
+  sample_every_n_frames: 15
+  confidence_threshold: 0.6
+  engine: auto
+vlm:
+  enabled: true
+  mode: validation
+  sample_interval_seconds: 3.0
+  trigger_on_low_ocr_confidence: true
+  trigger_on_layout_change: true
+  timeout_seconds: 3.0
+  provider: mock
+  api_key: null
+  base_url: https://api.openai.com/v1
+  model: gpt-4o-mini
+  prompt: null
+  temperature: 0.0
+stabilization:
+  label_observations_required: 5
+  layout_frames_required: 10
+  change_confirmation_frames: 10
+output:
+  display: true
+  save_snapshots: true
+  output_directory: data/output
+  jsonl: data/output/results.jsonl
+  metrics_log_interval_frames: 30
