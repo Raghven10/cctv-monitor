@@ -1,0 +1,1200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>System Configuration | AI CCTV Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css">
+  <style>
+    /* CRITICAL: Override global style.css body flex-column layout */
+    body {
+      margin: 0 !important;
+      padding: 0 !important;
+      background-color: var(--bg-dark) !important;
+      color: var(--text-primary) !important;
+      font-family: 'Outfit', sans-serif !important;
+      height: 100vh !important;
+      width: 100vw !important;
+      overflow: hidden !important;
+      display: block !important; /* Kill the flex-column from style.css */
+    }
+
+    :root {
+      --sidebar-width: 280px;
+      --header-height: 70px;
+      --bg-dark: #0a0e1a;
+      --bg-panel: #11182d;
+      --accent-cyan: #00f0ff;
+      --accent-amber: #ffaa33;
+      --accent-green: #00ff88;
+      --accent-red: #ff3366;
+      --text-primary: #ffffff;
+      --text-secondary: #a0aec0;
+      --border-color: rgba(255, 255, 255, 0.1);
+    }
+
+    /* The root layout wrapper - forces side-by-side regardless of body styles */
+    .admin-layout-wrapper {
+      display: flex !important;
+      flex-direction: row !important;
+      width: 100vw !important;
+      height: 100vh !important;
+      overflow: hidden !important;
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+
+    /* Sidebar Styling */
+    .admin-sidebar {
+      width: var(--sidebar-width) !important;
+      min-width: var(--sidebar-width) !important;
+      max-width: var(--sidebar-width) !important;
+      background-color: var(--bg-panel) !important;
+      border-right: 1px solid var(--border-color) !important;
+      display: flex !important;
+      flex-direction: column !important;
+      z-index: 100;
+      height: 100vh !important;
+    }
+
+    .sidebar-header {
+      height: var(--header-height);
+      display: flex;
+      align-items: center;
+      padding: 0 24px;
+      border-bottom: 1px solid var(--border-color);
+      background: linear-gradient(90deg, rgba(0, 240, 255, 0.1), transparent);
+      flex-shrink: 0;
+    }
+
+    .sidebar-logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 700;
+      font-size: 1.1rem;
+      color: var(--accent-cyan);
+    }
+
+    .sidebar-logo .badge {
+      background: var(--accent-cyan);
+      color: var(--bg-dark);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+    }
+
+    .sidebar-nav {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 12px;
+    }
+
+    .nav-group {
+      margin-bottom: 24px;
+    }
+
+    .nav-group-title {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      letter-spacing: 1px;
+      padding: 0 12px 8px;
+      font-weight: 600;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px;
+      color: var(--text-secondary);
+      text-decoration: none;
+      border-radius: 8px;
+      transition: all 0.2s ease;
+      cursor: pointer;
+      font-size: 0.9rem;
+      margin-bottom: 4px;
+    }
+
+    .nav-item:hover {
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text-primary);
+    }
+
+    .nav-item.active {
+      background: rgba(0, 240, 255, 0.15);
+      color: var(--accent-cyan);
+      box-shadow: inset 4px 0 0 var(--accent-cyan);
+    }
+
+    .nav-item .icon {
+      width: 20px;
+      text-align: center;
+      font-size: 1.1rem;
+    }
+
+    /* Main Content Area */
+    .admin-main {
+      flex: 1 !important;
+      display: flex !important;
+      flex-direction: column !important;
+      height: 100vh !important;
+      overflow: hidden !important;
+      position: relative;
+      background-color: var(--bg-dark);
+    }
+
+    .main-header {
+      height: var(--header-height);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 32px;
+      border-bottom: 1px solid var(--border-color);
+      background-color: rgba(10, 14, 26, 0.8);
+      backdrop-filter: blur(10px);
+      flex-shrink: 0;
+    }
+
+    .main-header h1 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin: 0;
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 12px;
+    }
+
+    .content-body {
+      flex: 1;
+      padding: 32px;
+      overflow-y: auto;
+      background: radial-gradient(circle at top left, rgba(0, 240, 255, 0.03), transparent);
+      position: relative;
+    }
+
+    /* Configuration Sections */
+    .config-section {
+      display: none;
+      max-width: 900px;
+      animation: fadeIn 0.3s ease;
+    }
+
+    .config-section.active {
+      display: block;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .section-header {
+      margin-bottom: 24px;
+    }
+
+    .section-header h2 {
+      font-size: 1.5rem;
+      margin: 0 0 8px 0;
+      color: var(--text-primary);
+    }
+
+    .section-header p {
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+      margin: 0;
+    }
+
+    /* Form Grid */
+    .config-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+      gap: 24px;
+    }
+
+    .config-card {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 24px;
+      transition: border-color 0.3s ease;
+    }
+
+    .config-card:hover {
+      border-color: rgba(0, 240, 255, 0.3);
+    }
+
+    .card-title {
+      font-weight: 600;
+      font-size: 1rem;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--accent-cyan);
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    .form-label-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .form-label {
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+
+    .range-val-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      background: rgba(0, 240, 255, 0.1);
+      color: var(--accent-cyan);
+      padding: 2px 8px;
+      border-radius: 4px;
+      border: 1px solid rgba(0, 240, 255, 0.3);
+    }
+
+    .form-range {
+      width: 100%;
+      cursor: pointer;
+      accent-color: var(--accent-cyan);
+    }
+
+    .form-select, .form-input {
+      width: 100%;
+      padding: 10px;
+      background: rgba(0,0,0,0.3);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      color: #fff;
+      font-family: inherit;
+      font-size: 0.9rem;
+      outline: none;
+      transition: border-color 0.2s ease;
+    }
+
+    .form-select:focus, .form-input:focus {
+      border-color: var(--accent-cyan);
+    }
+
+    .form-help {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      margin-top: 6px;
+      line-height: 1.4;
+    }
+
+    .form-group-toggle {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px;
+      background: rgba(0,0,0,0.2);
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+      margin-bottom: 12px;
+    }
+
+    .toggle-info {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .toggle-title {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .toggle-help {
+      font-size: 0.7rem;
+      color: var(--text-secondary);
+    }
+
+    /* Common Buttons from existing style.css logic */
+    .btn {
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      border: 1px solid transparent;
+      font-family: inherit;
+      font-size: 0.85rem;
+    }
+    .btn-primary { background: var(--accent-cyan); color: var(--bg-dark); }
+    .btn-secondary { background: rgba(255,255,255,0.1); color: #fff; border-color: var(--border-color); }
+    .btn-danger { background: rgba(255, 51, 102, 0.2); color: var(--accent-red); border-color: var(--accent-red); }
+    .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+
+    /* Toast */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      padding: 12px 24px;
+      border-radius: 8px;
+      background: var(--bg-panel);
+      border: 1px solid var(--accent-cyan);
+      color: #fff;
+      font-size: 0.9rem;
+      z-index: 1000;
+      transform: translateY(150%);
+      transition: transform 0.3s ease;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    }
+    .toast.show { transform: translateY(0); }
+  </style>
+</head>
+<body>
+
+  <div class="admin-layout-wrapper">
+    <aside class="admin-sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-logo">
+          <span class="badge">AI</span> CCTV ADMIN
+        </div>
+      </div>
+
+      <div class="sidebar-nav">
+        <div class="nav-group">
+          <div class="nav-group-title">Core Engine</div>
+          <a class="nav-item active" data-section="general">
+            <span class="icon">🏠</span> General
+          </a>
+          <a class="nav-item" data-section="biometrics">
+            <span class="icon">🧠</span> AI Biometrics
+          </a>
+          <a class="nav-item" data-section="detection">
+            <span class="icon">👤</span> Neural Detection
+          </a>
+          <a class="nav-item" data-section="identities">
+            <span class="icon">👥</span> Known Persons
+          </a>
+        </div>
+
+        <div class="nav-group">
+          <div class="nav-group-title">Monitoring</div>
+          <a class="nav-item" data-section="alerts">
+            <span class="icon">🚨</span> Intrusion Alerts
+          </a>
+          <a class="nav-item" data-section="events">
+            <span class="icon">📜</span> Activity Log
+          </a>
+          <a class="nav-item" data-section="display">
+            <span class="icon">🖥️</span> Physical Display
+          </a>
+          <a class="nav-item" data-section="layout">
+            <span class="icon">📐</span> Layout Logic
+          </a>
+        </div>
+
+        <div class="nav-group">
+          <div class="nav-group-title">Hardware & Data</div>
+          <a class="nav-item" data-section="video">
+            <span class="icon">📹</span> Video Feed
+          </a>
+          <a class="nav-item" data-section="ai_labels">
+            <span class="icon">🔤</span> OCR & VLM
+          </a>
+          <a class="nav-item" data-section="database">
+            <span class="icon">💾</span> Persistence
+          </a>
+        </div>
+      </div>
+    </aside>
+
+    <div class="admin-main">
+      <header class="main-header">
+        <h1 id="current-section-title">General Settings</h1>
+        <div class="header-actions">
+          <button class="btn btn-secondary" onclick="resetConfig()">🔄 Reset Defaults</button>
+          <button class="btn btn-primary" onclick="saveConfig()">💾 Save Changes</button>
+          <a href="/static/index.html" class="btn btn-secondary" style="text-decoration: none; display: flex; align-items: center; gap: 6px;">
+            🔙 Dashboard
+          </a>
+        </div>
+      </header>
+
+      <div class="content-body">
+        <!-- General Section -->
+        <section id="sec-general" class="config-section active">
+          <div class="section-header">
+            <h2>General System Settings</h2>
+            <p>Global operating parameters and administrative controls.</p>
+          </div>
+          <div class="config-grid">
+            <div class="config-card">
+              <div class="card-title"><span>🌐</span> Global Strategy</div>
+              <div class="form-group">
+                <label class="form-label">System Name</label>
+                <input type="text" class="form-input" id="cfg-sys-name" value="AI CCTV Physical Monitor">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Operating Mode</label>
+                <select class="form-select" id="cfg-op-mode">
+                  <option value="PRODUCTION">Production (Strict)</option>
+                  <option value="DEVELOPMENT">Development (Permissive)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Biometrics Section -->
+        <section id="sec-biometrics" class="config-section">
+          <div class="section-header">
+            <h2>AI Biometrics</h2>
+            <p>Configuration for ArcFace ResNet-50 embedding engine.</p>
+          </div>
+          <div class="config-grid">
+            <div class="config-card">
+              <div class="card-title"><span>🔑</span> Matching Logic</div>
+              <div class="form-group">
+                <div class="form-label-row">
+                  <label class="form-label">Cosine Similarity Threshold</label>
+                  <span class="range-val-badge" id="val-biometrics-threshold">0.48</span>
+                </div>
+                <input type="range" class="form-range" id="cfg-biometrics-threshold" min="0.30" max="0.75" step="0.01" oninput="updateLabel('biometrics-threshold', this.value)">
+                <div class="form-help">Controls the strictness of identity verification. Higher = fewer false positives.</div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Embedding Model</label>
+                <select class="form-select" id="cfg-biometrics-model">
+                  <option value="InsightFace ArcFace ResNet-50">InsightFace ArcFace ResNet-50 (512-d)</option>
+                  <option value="OpenCV SFace">OpenCV SFace (128-d Fallback)</option>
+                </select>
+              </div>
+              <div class="form-group-toggle">
+                <div class="toggle-info">
+                  <div class="toggle-title">Landmark Alignment</div>
+                  <div class="toggle-help">Aligns faces to canonical plane.</div>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" id="cfg-biometrics-alignment" checked>
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Neural Detection Section -->
+        <section id="sec-detection" class="config-section">
+          <div class="section-header">
+            <h2>Neural Detection</h2>
+            <p>Settings for YuNet Deep Neural Network face/person detector.</p>
+          </div>
+          <div class="config-grid">
+            <div class="config-card">
+              <div class="card-title"><span>🎯</span> Detection Thresholds</div>
+              <div class="form-group">
+                <div class="form-label-row">
+                  <label class="form-label">Confidence Threshold</label>
+                  <span class="range-val-badge" id="val-detection-score">0.70</span>
+                </div>
+                <input type="range" class="form-range" id="cfg-detection-score" min="0.40" max="0.95" step="0.05" oninput="updateLabel('detection-score', this.value)">
+              </div>
+              <div class="form-group">
+                <div class="form-label-row">
+                  <label class="form-label">NMS Overlap Threshold</label>
+                  <span class="range-val-badge" id="val-detection-nms">0.30</span>
+                </div>
+                <input type="range" class="form-range" id="cfg-detection-nms" min="0.10" max="0.60" step="0.05" oninput="updateLabel('detection-nms', this.value)">
+              </div>
+              <div class="form-group">
+                <div class="form-label-row">
+                  <label class="form-label">Min Face Dimension (px)</label>
+                  <span class="range-val-badge" id="val-detection-minsize">35 px</span>
+                </div>
+                <input type="range" class="form-range" id="cfg-detection-minsize" min="20" max="100" step="5" oninput="updateLabel('detection-minsize', this.value + ' px')">
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Alerts Section -->
+        <section id="sec-alerts" class="config-section">
+          <div class="section-header">
+            <h2>Intrusion Alerts</h2>
+            <p>Configure anti-spam gating and notification triggers.</p>
+          </div>
+          <div class="config-grid">
+            <div class="config-card">
+              <div class="card-title"><span>🚨</span> Alarm Logic</div>
+              <div class="form-group">
+                <div class="form-label-row">
+                  <label class="form-label">Confirmation Threshold</label>
+                  <span class="range-val-badge" id="val-alert-frames">5 frames</span>
+                </div>
+                <input type="range" class="form-range" id="cfg-alert-frames" min="1" max="15" step="1" oninput="updateLabel('alert-frames', this.value + ' frames')">
+              </div>
+              <div class="form-group">
+                <div class="form-label-row">
+                  <label class="form-label">Clearance Cooldown</label>
+                  <span class="range-val-badge" id="val-alert-cooldown">6.0s</span>
+                </div>
+                <input type="range" class="form-range" id="cfg-alert-cooldown" min="1.0" max="20.0" step="0.5" oninput="updateLabel('alert-cooldown', this.value + 's')">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Voice Announcement Phrase</label>
+                <input type="text" class="form-input" id="cfg-alert-text" value="Unknown person detected!">
+              </div>
+              <div class="form-group-toggle">
+                <div class="toggle-info">
+                  <div class="toggle-title">Spoken Voice (TTS)</div>
+                  <div class="toggle-help">Trigger spoken alarm.</div>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" id="cfg-alert-voice" checked>
+                  <span class="slider"></span>
+                </label>
+              </div>
+              <div class="form-group-toggle">
+                <div class="toggle-info">
+                  <div class="toggle-title">Hardware Buzzer</div>
+                  <div class="toggle-help">Trigger physical alarm.</div>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" id="cfg-alert-buzzer" checked>
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Display Section -->
+        <section id="sec-display" class="config-section">
+          <div class="section-header">
+            <h2>Physical Display</h2>
+            <p>Monitor localization and perspective rectification.</p>
+          </div>
+          <div class="config-grid">
+            <div class="config-card">
+              <div class="card-title"><span>🖥️</span> Bezel Discovery</div>
+              <div class="form-group-toggle">
+                <div class="toggle-info">
+                  <div class="toggle-title">Automatic Detection</div>
+                  <div class="toggle-help">Locate monitor edges via CV.</div>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" id="cfg-display-autodetect" checked>
+                  <span class="slider"></span>
+                </label>
+              </div>
+              <div class="form-group">
+                <div class="form-label-row">
+                  <label class="form-label">Min Area Fraction</label>
+                  <span class="range-val-badge" id="val-display-minarea">12%</span>
+                </div>
+                <input type="range" class="form-range" id="cfg-display-minarea" min="0.05" max="0.60" step="0.01" oninput="updateLabel('display-minarea', Math.round(this.value * 100) + '%')">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Calibration Mode</label>
+                <select class="form-select" id="cfg-display-calibmode">
+                  <option value="assisted">Assisted (Stored Fallback)</option>
+                  <option value="auto">Pure Auto CV</option>
+                  <option value="manual">Manual Corner Override</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Target Rectification Res</label>
+                <select class="form-select" id="cfg-display-targetres">
+                  <option value="3840x2160">3840 × 2160 (4K UHD)</option>
+                  <option value="1920x1080">1920 × 1080 (1080p)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Layout Section -->
+        <section id="sec-layout" class="config-section">
+          <div class="section-header">
+            <h2>Layout Logic</h2>
+            <p>CCTV Grid inference and stabilization parameters.</p>
+          </div>
+          <div class="config-grid">
+            <div class="config-card">
+              <div class="card-title"><span>📐</span> Grid Inference</div>
+              <div class="form-group-toggle">
+                <div class="toggle-info">
+                  <div class="toggle-title">Dynamic Grid Inference</div>
+                  <div class="toggle-help">Auto-detect 1x1 to 4x4 grids.</div>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" id="cfg-layout-dynamic" checked>
+                  <span class="slider"></span>
+                </label>
+              </div>
+              <div class="form-group">
+                <div class="form-label-row">
+                  <label class="form-label">Stability Threshold</label>
+                  <span class="range-val-badge" id="val-layout-stability">10 frames</span>
+                </div>
+                <input type="range" class="form-range" id="cfg-layout-stability" min="3" max="30" step="1" oninput="updateLabel('layout-stability', this.value + ' frames')">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Expected Aspect Ratio</label>
+                <select class="form-select" id="cfg-layout-aspect">
+                  <option value="auto">Auto (Adaptive)</option>
+                  <option value="16:9">16:9 (Widescreen)</option>
+                  <option value="4:3">4:3 (Traditional)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Video Section -->
+        <section id="sec-video" class="config-section">
+          <div class="section-header">
+            <h2>Video Acquisition</h2>
+            <p>Input stream sources and capture hardware.</p>
+          </div>
+          <div class="config-grid">
+            <div class="config-card">
+              <div class="card-title"><span>📹</span> Source Settings</div>
+              <div class="form-group">
+                <label class="form-label">Source Type</label>
+                <select class="form-select" id="cfg-video-source">
+                  <option value="webcam">Live Webcam</option>
+                  <option value="file">Pre-Recorded Video</option>
+                  <option value="rtsp">RTSP Stream</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Device ID / URI</label>
+                <input type="text" class="form-input" id="cfg-video-device" value="0">
+              </div>
+              <div class="form-group">
+                <div class="form-label-row">
+                  <label class="form-label">Acquisition FPS</label>
+                  <span class="range-val-badge" id="val-video-fps">30 FPS</span>
+                </div>
+                <input type="range" class="form-range" id="cfg-video-fps" min="10" max="60" step="5" oninput="updateLabel('video-fps', this.value + ' FPS')">
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- AI Labels Section -->
+        <section id="sec-ai_labels" class="config-section">
+          <div class="section-header">
+            <h2>OCR & VLM</h2>
+            <p>Automatic camera labeling and multi-modal semantic verification.</p>
+          </div>
+          <div class="config-grid">
+            <div class="config-card">
+              <div class="card-title"><span>🔤</span> Labeling Engine</div>
+              <div class="form-group-toggle">
+                <div class="toggle-info">
+                  <div class="toggle-title">OCR Text Engine</div>
+                  <div class="toggle-help">Read on-screen labels.</div>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" id="cfg-ocr-enabled" checked>
+                  <span class="slider"></span>
+                </label>
+              </div>
+              <div class="form-group">
+                <div class="form-label-row">
+                  <label class="form-label">OCR Sample Interval</label>
+                  <span class="range-val-badge" id="val-ocr-interval">15 frames</span>
+                </div>
+                <input type="range" class="form-range" id="cfg-ocr-interval" min="5" max="60" step="5" oninput="updateLabel('ocr-interval', this.value + ' frames')">
+              </div>
+              <div class="form-group">
+                <label class="form-label">VLM Provider</label>
+                <select class="form-select" id="cfg-vlm-provider">
+                  <option value="mock">Built-in Local Mock</option>
+                  <option value="gemini">Google Gemini API</option>
+                  <option value="openai">OpenAI Vision API</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Known Person Registry Section -->
+        <section id="sec-identities" class="config-section">
+          <div class="section-header">
+            <h2>Known Person Registry</h2>
+            <p>Authorized biometrics database and identity management.</p>
+          </div>
+          <div class="config-card" style="max-width: 100%;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--border-color);">
+              <div class="card-title" style="margin: 0;">
+                <span>👤 Active Profiles</span>
+                <span id="cfg-identities-count" style="font-size: 0.8rem; font-weight: 600; color: var(--accent-cyan); margin-left: 10px;">(0 Profiles)</span>
+              </div>
+              <div style="display: flex; gap: 12px;">
+                <button class="btn btn-secondary" onclick="clearAllIdentities()">🗑️ Clear All Profiles</button>
+              </div>
+            </div>
+            <div class="events-grid" id="cfg-identities-list" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px;">
+              <!-- Person cards loaded dynamically -->
+            </div>
+          </div>
+        </section>
+
+        <!-- Activity Log Section -->
+        <section id="sec-events" class="config-section">
+          <div class="section-header">
+            <h2>Activity Log</h2>
+            <p>History of unusual frames, security events, and layout changes.</p>
+          </div>
+          <div class="config-card" style="max-width: 100%;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--border-color);">
+              <div class="card-title" style="margin: 0;">
+                <span>📜 Event History</span>
+                <span id="cfg-events-count" style="font-size: 0.8rem; font-weight: 600; color: var(--accent-cyan); margin-left: 10px;">(0 Events)</span>
+              </div>
+              <div style="display: flex; gap: 12px; align-items: center;">
+                <div style="display: flex; gap: 4px; margin-right: 12px;">
+                  <button class="filter-btn active" id="cfg-filter-all" onclick="setEventFilter('all')">All</button>
+                  <button class="filter-btn" id="cfg-filter-crit" onclick="setEventFilter('CRITICAL')">🚨 Critical</button>
+                  <button class="filter-btn" id="cfg-filter-layout" onclick="setEventFilter('LAYOUT_CHANGED')">📐 Layout</button>
+                  <button class="filter-btn" id="cfg-filter-warn" onclick="setEventFilter('WARNING')">⚠️ Warn</button>
+                </div>
+                <button class="btn btn-secondary" onclick="clearAllEventsLog()">🗑️ Clear Log</button>
+              </div>
+            </div>
+            <div class="events-grid" id="cfg-events-list" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 16px;">
+              <!-- Event cards loaded dynamically -->
+            </div>
+          </div>
+        </section>
+
+        <!-- Database Section -->
+        <section id="sec-database" class="config-section">
+          <div class="section-header">
+            <h2>Persistence</h2>
+            <p>Database storage and telemetry logging.</p>
+          </div>
+          <div class="config-grid">
+            <div class="config-card">
+              <div class="card-title"><span>💾</span> Storage Settings</div>
+              <div class="form-group-toggle">
+                <div class="toggle-info">
+                  <div class="toggle-title">Save Event Snapshots</div>
+                  <div class="toggle-help">Store JPEGs for every intrusion.</div>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" id="cfg-output-snapshots" checked>
+                  <span class="slider"></span>
+                </label>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Snapshot Directory</label>
+                <input type="text" class="form-input" id="cfg-output-dir" value="data/output">
+              </div>
+              <div class="form-group">
+                <label class="form-label">JSONL Telemetry Log</label>
+                <input type="text" class="form-input" id="cfg-output-jsonl" value="data/output/results.jsonl">
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <div class="lightbox-overlay" id="lightbox-modal" onclick="closeLightbox()" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.9); z-index: 2000; justify-content: center; align-items: center; flex-direction: column; cursor: pointer;">
+    <img id="lightbox-img" class="lightbox-img" src="" alt="Full Snapshot" style="max-width: 90%; max-height: 80%; border: 2px solid var(--accent-cyan); box-shadow: 0 0 20px rgba(0,240,255,0.3);">
+    <div id="lightbox-caption" style="color: #fff; font-size: 1rem; font-weight: 600; background: rgba(0,0,0,0.7); padding: 10px 20px; border-radius: 8px; margin-top: 20px; border: 1px solid var(--border-color);"></div>
+    <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 10px;">Click anywhere to close</div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+    // Navigation Logic
+    let activeEventFilter = 'all';
+
+    document.querySelectorAll('.nav-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const sectionId = item.getAttribute('data-section');
+
+        // Update active nav item
+        document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+        item.classList.add('active');
+
+        // Update active section
+        document.querySelectorAll('.config-section').forEach(sec => sec.classList.remove('active'));
+        document.getElementById(`sec-${sectionId}`).classList.add('active');
+
+        // Update header title
+        const title = item.textContent.trim();
+        document.getElementById('current-section-title').textContent = title + ' Settings';
+
+        // Load data for dynamic sections
+        if (sectionId === 'identities') loadIdentities();
+        if (sectionId === 'events') loadEventsData();
+      });
+    });
+
+    function updateLabel(id, val) {
+      document.getElementById(`val-${id}`).textContent = val;
+    }
+
+    function showToast(msg, type = 'info') {
+      const toast = document.getElementById('toast');
+      toast.textContent = msg;
+      toast.style.borderColor = type === 'success' ? 'var(--accent-green)' : 'var(--accent-cyan)';
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+
+    // --- Identity Registry Logic ---
+    async function loadIdentities() {
+      const container = document.getElementById('cfg-identities-list');
+      try {
+        const res = await fetch('/api/known_persons');
+        const data = await res.json();
+        const persons = data.persons || [];
+
+        document.getElementById('cfg-identities-count').innerText = `(${persons.length} Active Profiles)`;
+
+        if (persons.length === 0) {
+          container.innerHTML = '<div style="grid-column: 1/-1; padding: 40px; text-align: center; color: var(--text-muted);">No authorized persons registered. Use the Dashboard to tag faces from live monitoring.</div>';
+          return;
+        }
+
+        container.innerHTML = '';
+        persons.forEach(p => {
+          const card = document.createElement('div');
+          card.className = 'event-card-item'; // Reuse style from style.css
+          const dt = p.registered_at ? new Date(p.registered_at * 1000).toLocaleString() : 'Active';
+
+          card.innerHTML = `
+            <img class="event-thumb" src="data:image/jpeg;base64,${p.snapshot_base64}" alt="Face Snapshot" onclick="openLightbox('data:image/jpeg;base64,${p.snapshot_base64}', '${p.name} [${p.tag}]')">
+            <div style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-weight: 700; font-size: 0.95rem; color: var(--accent-green);">👤 ${p.name}</span>
+                <span class="person-tag-badge" style="background: rgba(0,255,136,0.15); color: var(--accent-green);">${p.tag}</span>
+              </div>
+              <div style="font-size: 0.78rem; color: var(--text-muted); font-family: 'JetBrains Mono', monospace;">ID: ${p.person_id}</div>
+              <div style="font-size: 0.74rem; color: var(--text-muted);">Registered: ${dt}</div>
+            </div>
+            <button class="btn" style="padding: 6px 12px; font-size: 0.78rem; color: var(--accent-red); border-color: rgba(255,51,102,0.3);" onclick="untagPerson('${p.person_id}', '${p.name}')">🗑️ Remove</button>
+          `;
+          container.appendChild(card);
+        });
+      } catch (err) {
+        console.error("Failed to load identities:", err);
+      }
+    }
+
+    async function clearAllIdentities() {
+      if (!confirm("Are you sure you want to clear ALL registered person profiles from the biometric database?")) return;
+      try {
+        const res = await fetch('/api/known_persons/clear', { method: 'POST' });
+        if (res.ok) {
+          showToast('🗑️ All registered identities cleared', 'success');
+          loadIdentities();
+        }
+      } catch (e) {
+        console.error("Clear all identities error:", e);
+      }
+    }
+
+    async function untagPerson(personId, name) {
+      if (!confirm(`Are you sure you want to remove authorization for ${name}?`)) return;
+      try {
+        const res = await fetch(`/api/known_persons/${personId}`, { method: 'DELETE' });
+        if (res.ok) {
+          showToast(`🗑️ Removed authorization for ${name}`, 'success');
+          loadIdentities();
+        }
+      } catch (e) {
+        console.error("Untag error:", e);
+      }
+    }
+
+    // --- Activity Log Logic ---
+    async function loadEventsData() {
+      const container = document.getElementById('cfg-events-list');
+      try {
+        let url = '/api/events?limit=60';
+        if (activeEventFilter === 'CRITICAL' || activeEventFilter === 'WARNING') {
+          url += `&severity=${activeEventFilter}`;
+        } else if (activeEventFilter === 'LAYOUT_CHANGED') {
+          url += `&event_type=${activeEventFilter}`;
+        }
+
+        const res = await fetch(url);
+        const data = await res.json();
+        const events = data.events || [];
+
+        document.getElementById('cfg-events-count').innerText = `(${events.length} Events)`;
+
+        if (events.length === 0) {
+          container.innerHTML = '<div style="grid-column: 1/-1; padding: 40px; text-align: center; color: var(--text-muted);">No security events recorded in the selected filter.</div>';
+          return;
+        }
+
+        container.innerHTML = '';
+        events.forEach(ev => {
+          const card = document.createElement('div');
+          card.className = 'event-card-item';
+
+          let badgeClass = 'event-badge-info';
+          if (ev.severity === 'CRITICAL') badgeClass = 'event-badge-crit';
+          if (ev.severity === 'WARNING') badgeClass = 'event-badge-warn';
+
+          const dt = new Date(ev.timestamp);
+          const timeStr = dt.toLocaleString();
+
+          card.innerHTML = `
+            <img class="event-thumb" src="${ev.thumbnail_base64 || '/api/events/' + ev.event_id + '/snapshot'}" alt="Snapshot" onclick="openLightbox('${ev.thumbnail_base64 || '/api/events/' + ev.event_id + '/snapshot'}', '${ev.description} [${timeStr}]')">
+            <div style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <span class="person-tag-badge ${badgeClass}">${ev.severity}</span>
+                  <span style="font-weight: 700; font-size: 0.88rem; color: var(--text-main);">${ev.event_type}</span>
+                </div>
+                <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: var(--text-muted);">${timeStr}</span>
+              </div>
+              <div style="font-size: 0.82rem; color: #ccd6e0;">${ev.description}</div>
+              <div style="font-size: 0.74rem; color: var(--text-muted); font-family: 'JetBrains Mono', monospace;">Mode: ${ev.mode} | Event ID: ${ev.event_id}</div>
+            </div>
+            <button class="btn" style="padding: 4px 8px; font-size: 0.72rem; color: var(--accent-red); border-color: rgba(255,51,102,0.3);" onclick="deleteSingleEvent('${ev.event_id}')">🗑️</button>
+          `;
+          container.appendChild(card);
+        });
+      } catch (err) {
+        console.error("Failed to load events:", err);
+      }
+    }
+
+    function setEventFilter(filter) {
+      activeEventFilter = filter;
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      const btn = document.getElementById(`cfg-filter-${filter === 'all' ? 'all' : (filter === 'CRITICAL' ? 'crit' : (filter === 'WARNING' ? 'warn' : 'layout'))}`);
+      if (btn) btn.classList.add('active');
+      loadEventsData();
+    }
+
+    async function deleteSingleEvent(eventId) {
+      if (!confirm('Delete this event from the security log?')) return;
+      try {
+        const res = await fetch(`/api/events/${eventId}`, { method: 'DELETE' });
+        if (res.ok) {
+          showToast('Event deleted', 'success');
+          loadEventsData();
+        }
+      } catch (e) {
+        console.error("Delete event error:", e);
+      }
+    }
+
+    async function clearAllEventsLog() {
+      if (!confirm("Are you sure you want to clear all unusual frame records and snapshots from database?")) return;
+      try {
+        const res = await fetch('/api/events/clear', { method: 'POST' });
+        if (res.ok) {
+          showToast('🗑️ Event log cleared', 'success');
+          loadEventsData();
+        }
+      } catch (e) {
+        console.error("Clear events error:", e);
+      }
+    }
+
+    function openLightbox(src, caption) {
+      const modal = document.getElementById('lightbox-modal');
+      const img = document.getElementById('lightbox-img');
+      const cap = document.getElementById('lightbox-caption');
+      img.src = src;
+      cap.innerText = caption || 'Snapshot Detail';
+      modal.style.display = 'flex';
+    }
+
+    function closeLightbox() {
+      document.getElementById('lightbox-modal').style.display = 'none';
+    }
+
+    async function loadConfig() {
+      try {
+        const res = await fetch('/api/config');
+        const data = await res.json();
+        const cfg = data.config;
+
+        // Map config to DOM elements
+        // Biometrics
+        if (cfg.biometrics) {
+          document.getElementById('cfg-biometrics-threshold').value = cfg.biometrics.match_threshold;
+          updateLabel('biometrics-threshold', cfg.biometrics.match_threshold);
+          document.getElementById('cfg-biometrics-model').value = cfg.biometrics.model || 'InsightFace ArcFace ResNet-50';
+          document.getElementById('cfg-biometrics-alignment').checked = cfg.biometrics.alignment_enabled ?? true;
+        }
+
+        // Detection
+        if (cfg.detection) {
+          document.getElementById('cfg-detection-score').value = cfg.detection.score_threshold;
+          updateLabel('detection-score', cfg.detection.score_threshold);
+          document.getElementById('cfg-detection-nms').value = cfg.detection.nms_threshold;
+          updateLabel('detection-nms', cfg.detection.nms_threshold);
+          document.getElementById('cfg-detection-minsize').value = cfg.detection.min_face_size;
+          updateLabel('detection-minsize', cfg.detection.min_face_size + ' px');
+        }
+
+        // Alerts
+        if (cfg.alert) {
+          document.getElementById('cfg-alert-frames').value = cfg.alert.min_consecutive_frames;
+          updateLabel('alert-frames', cfg.alert.min_consecutive_frames + ' frames');
+          document.getElementById('cfg-alert-cooldown').value = cfg.alert.clear_cooldown_seconds;
+          updateLabel('alert-cooldown', cfg.alert.clear_cooldown_seconds + 's');
+          document.getElementById('cfg-alert-text').value = cfg.alert.voice_phrase || 'Unknown person detected!';
+          document.getElementById('cfg-alert-voice').checked = cfg.alert.voice_enabled;
+          document.getElementById('cfg-alert-buzzer').checked = cfg.alert.buzzer_enabled;
+        }
+
+        // Display
+        if (cfg.display) {
+          document.getElementById('cfg-display-autodetect').checked = cfg.display.autodetect_enabled ?? true;
+          document.getElementById('cfg-display-minarea').value = cfg.display.min_area_fraction;
+          updateLabel('display-minarea', Math.round(cfg.display.min_area_fraction * 100) + '%');
+          document.getElementById('cfg-display-calibmode').value = cfg.display.calibration_mode;
+          document.getElementById('cfg-display-targetres').value = cfg.display.target_resolution;
+        }
+
+        // Layout
+        if (cfg.layout) {
+          document.getElementById('cfg-layout-dynamic').checked = cfg.layout.dynamic_inference_enabled ?? true;
+          document.getElementById('cfg-layout-stability').value = cfg.layout.stability_frames;
+          updateLabel('layout-stability', cfg.layout.stability_frames + ' frames');
+          document.getElementById('cfg-layout-aspect').value = cfg.layout.expected_aspect_ratio;
+        }
+
+        // Video
+        if (cfg.video) {
+          document.getElementById('cfg-video-source').value = cfg.video.source_type;
+          document.getElementById('cfg-video-device').value = cfg.video.device_id;
+          document.getElementById('cfg-video-fps').value = cfg.video.capture_fps;
+          updateLabel('video-fps', cfg.video.capture_fps + ' FPS');
+        }
+
+        // OCR/VLM
+        if (cfg.ocr) {
+          document.getElementById('cfg-ocr-enabled').checked = cfg.ocr.enabled;
+          document.getElementById('cfg-ocr-interval').value = cfg.ocr.sample_every_n_frames;
+          updateLabel('ocr-interval', cfg.ocr.sample_every_n_frames + ' frames');
+        }
+        if (cfg.vlm) {
+          document.getElementById('cfg-vlm-provider').value = cfg.vlm.provider;
+        }
+
+        // Database
+        if (cfg.output) {
+          document.getElementById('cfg-output-snapshots').checked = cfg.output.save_snapshots;
+          document.getElementById('cfg-output-dir').value = cfg.output.snapshot_dir;
+          document.getElementById('cfg-output-jsonl').value = cfg.output.jsonl_path;
+        }
+
+      } catch (err) {
+        console.error('Error loading config:', err);
+      }
+    }
+
+    async function saveConfig() {
+      const config = {
+        biometrics: {
+          match_threshold: parseFloat(document.getElementById('cfg-biometrics-threshold').value),
+          model: document.getElementById('cfg-biometrics-model').value,
+          alignment_enabled: document.getElementById('cfg-biometrics-alignment').checked,
+        },
+        detection: {
+          score_threshold: parseFloat(document.getElementById('cfg-detection-score').value),
+          nms_threshold: parseFloat(document.getElementById('cfg-detection-nms').value),
+          min_face_size: parseInt(document.getElementById('cfg-detection-minsize').value),
+        },
+        alert: {
+          min_consecutive_frames: parseInt(document.getElementById('cfg-alert-frames').value),
+          clear_cooldown_seconds: parseFloat(document.getElementById('cfg-alert-cooldown').value),
+          voice_phrase: document.getElementById('cfg-alert-text').value,
+          voice_enabled: document.getElementById('cfg-alert-voice').checked,
+          buzzer_enabled: document.getElementById('cfg-alert-buzzer').checked,
+        },
+        display: {
+          autodetect_enabled: document.getElementById('cfg-display-autodetect').checked,
+          min_area_fraction: parseFloat(document.getElementById('cfg-display-minarea').value),
+          calibration_mode: document.getElementById('cfg-display-calibmode').value,
+          target_resolution: document.getElementById('cfg-display-targetres').value,
+        },
+        layout: {
+          dynamic_inference_enabled: document.getElementById('cfg-layout-dynamic').checked,
+          stability_frames: parseInt(document.getElementById('cfg-layout-stability').value),
+          expected_aspect_ratio: document.getElementById('cfg-layout-aspect').value,
+        },
+        video: {
+          source_type: document.getElementById('cfg-video-source').value,
+          device_id: document.getElementById('cfg-video-device').value,
+          capture_fps: parseInt(document.getElementById('cfg-video-fps').value),
+        },
+        ocr: {
+          enabled: document.getElementById('cfg-ocr-enabled').checked,
+          sample_every_n_frames: parseInt(document.getElementById('cfg-ocr-interval').value),
+        },
+        vlm: {
+          provider: document.getElementById('cfg-vlm-provider').value,
+        },
+        output: {
+          save_snapshots: document.getElementById('cfg-output-snapshots').checked,
+          snapshot_dir: document.getElementById('cfg-output-dir').value,
+          jsonl_path: document.getElementById('cfg-output-jsonl').value,
+        },
+      };
+
+      try {
+        const res = await fetch('/api/config', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(config),
+        });
+        if (res.ok) {
+          showToast('Configuration saved and applied live!', 'success');
+        } else {
+          showToast('Failed to save configuration', 'error');
+        }
+      } catch (err) {
+        console.error('Error saving config:', err);
+        showToast('Network error while saving', 'error');
+      }
+    }
+
+    async function resetConfig() {
+      if (!confirm('Reset all settings to factory defaults? This cannot be undone.')) return;
+      try {
+        const res = await fetch('/api/config/reset', { method: 'POST' });
+        if (res.ok) {
+          showToast('Configuration reset to defaults!', 'success');
+          await loadConfig();
+        }
+      } catch (err) {
+        showToast('Error resetting configuration', 'error');
+      }
+    }
+
+    window.onload = loadConfig;
+  </script>
+</body>
+</html>

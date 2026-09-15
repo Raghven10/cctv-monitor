@@ -33,7 +33,7 @@ def test_pane_extraction_ids_and_crops():
     panes = extractor.extract_panes(synth_img, layout)
 
     assert len(panes) == 6
-    expected_ids = ["P01", "P02", "P03", "P04", "P05", "P06"]
+    expected_ids = ["Pane-01", "Pane-02", "Pane-03", "Pane-04", "Pane-05", "Pane-06"]
     assert [p.pane_id for p in panes] == expected_ids
 
     for p in panes:
@@ -47,6 +47,6 @@ def test_pane_extraction_ids_and_crops():
 
 
 def test_format_pane_id():
-    assert format_pane_id(0) == "P01"
-    assert format_pane_id(8) == "P09"
-    assert format_pane_id(15) == "P16"
+    assert format_pane_id(0) == "Pane-01"
+    assert format_pane_id(8) == "Pane-09"
+    assert format_pane_id(15) == "Pane-16"

@@ -233,6 +233,8 @@ class EventDatabase:
 
     def clear_all(self) -> int:
         """Clear all event logs and images."""
+        with self._lock:
+            self._last_event_times.clear()
         try:
             with self._session_factory() as db:
                 rows = db.query(ActivityEventModel).all()

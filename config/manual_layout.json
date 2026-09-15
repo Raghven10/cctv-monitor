@@ -1,0 +1,54 @@
+{
+  "is_active": false,
+  "is_finalized": false,
+  "preset": "AUTO",
+  "rows": 2,
+  "cols": 2,
+  "x_dividers": [],
+  "y_dividers": [],
+  "panes_metadata": [],
+  "mesh": [],
+  "zones": {
+    "Pane-02": [
+      {
+        "zone_id": "zone_1",
+        "label": "Zone 1",
+        "zone_type": "door",
+        "bbox": [
+          0.6419172932330827,
+          0.23099415204678359,
+          0.21428571428571433,
+          0.7619047619047619
+        ],
+        "authorized_persons": [],
+        "alarm_on_entry": true,
+        "alarm_on_lift": false,
+        "loiter_threshold_sec": 10
+      }
+    ],
+    "Pane-03": [],
+    "Pane-01": [
+      {
+        "zone_id": "zone_1",
+        "label": "Cap ",
+        "zone_type": "object_box",
+        "bbox": [
+          0.40319548872180444,
+          0.36800334168755217,
+          0.13345864661654136,
+          0.3508771929824562
+        ],
+        "authorized_persons": [],
+        "alarm_on_entry": false,
+        "alarm_on_lift": true,
+        "loiter_threshold_sec": 1
+      }
+    ]
+  },
+  "rules": {
+    "Pane-02": {
+      "object_lift_enabled": false,
+      "activity_enabled": false
+    }
+  }
+}

@@ -50,9 +50,11 @@ RUN pip install --no-cache-dir --no-deps -e .
 
 # Copy all offline AI deep learning models and data files into the image
 COPY data/ ./data/
+RUN cp /app/data/yolo11n.pt /app/yolo11n.pt 2>/dev/null || true
 
 # Ensure all runtime storage directories exist with write permissions
 RUN mkdir -p /app/data/events /app/data/output /app/data/snapshots
+
 
 # Expose web server and live streaming port
 EXPOSE 8080

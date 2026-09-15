@@ -13,15 +13,21 @@ services:
       - DATABASE_URL=sqlite:////app/data/cctv_events.db
       - EVENTS_STORAGE_PATH=/app/data/events
       - KNOWN_PERSONS_STORAGE_PATH=/app/data/known_persons.json
-      # Optional: In-network VLM / LLM endpoint in your airgapped environment
-      # - OPENAI_API_KEY=sk-local
-      # - VLM_BASE_URL=http://ollama-service:11434/v1
-      # - VLM_MODEL=qwen2.5-vl
+      # Local Ollama VLM integration
+      - VLM_PROVIDER=ollama
+      - VLM_BASE_URL=http://host.docker.internal:11434/v1
+      - VLM_MODEL=moondream
+      - OPENAI_API_KEY=ollama
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       # Persistent storage for events, registered identities, and output data
       - cctv_data:/app/data
       # Mount config as read-write so the config update API can save changes
       - ./config:/app/config
+      - ./tests:/app/tests
+      # Mount src so code and static asset edits take effect immediately
+      - ./src:/app/src
     # NOTE: No /dev/video* device passthrough needed.
     # The webcam runs in the user's browser via getUserMedia() — not on the server.
     healthcheck:

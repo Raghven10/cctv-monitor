@@ -45,6 +45,7 @@ class KnownPersonRecord:
     snapshot_base64: str
     features: List[float]  # Primary/averaged 512-d normalized embedding
     template_shape: Tuple[int, int]
+    is_poi: bool = False
     feature_gallery: Optional[List[List[float]]] = None  # Optional multi-pose embedding gallery
 
 
@@ -60,7 +61,7 @@ class IdentityRegistry:
     def __init__(
         self,
         storage_path: str = "data/known_persons.json",
-        match_threshold: float = 0.48,
+        match_threshold: float = 0.42,
         session_factory: Optional[Any] = None,
         load_from_db: bool = True,
     ):
@@ -70,6 +71,7 @@ class IdentityRegistry:
         self._lock = threading.Lock()
         self._persons: Dict[str, KnownPersonRecord] = {}
         self._templates: Dict[str, np.ndarray] = {}
+        self._last_seen_cache: Dict[str, Dict[str, Any]] = {}
         self._arcface_session: Optional[Any] = None
         self._arcface_input_name: str = "input.1"
         self._sface_recognizer: Optional[cv2.FaceRecognizerSF] = None
@@ -135,6 +137,12 @@ class IdentityRegistry:
 
     def _load_from_db(self) -> None:
         """Load registered identities from SQLAlchemy database (supporting single-vector and multi-vector galleries)."""
+        try:
+            from ..db.config import init_db
+            init_db()
+        except Exception as e:
+            logger.warning(f"Database initialization before identity load encountered: {e}")
+
         loaded_count = 0
         try:
             with self._session_factory() as db:
@@ -161,6 +169,7 @@ class IdentityRegistry:
                                 snapshot_base64=m.snapshot_base64 or "",
                                 features=features,
                                 template_shape=(112, 112),
+                                is_poi=getattr(m, "is_poi", False),
                                 feature_gallery=gallery if gallery else ([features] if features else []),
                             )
                             self._persons[m.person_id] = rec
@@ -249,6 +258,10 @@ class IdentityRegistry:
         """
         if crop is None or crop.size == 0:
             return np.zeros((112, 112, 3), dtype=np.uint8)
+
+        # Fast-path: If crop is already an aligned 112x112 image and no explicit landmarks are passed
+        if landmarks is None and (crop.shape[:2] == (112, 112)):
+            return crop
 
         # Case A: Explicit landmarks and full image passed from live detector
         if landmarks is not None and full_image is not None and len(landmarks) == 5:
@@ -416,6 +429,39 @@ class IdentityRegistry:
         is_match = (best_score >= self.match_threshold) and (best_person is not None)
         return is_match, best_person if is_match else None, round(max(0.0, best_score), 2)
 
+    def update_last_seen(self, person_id: str, snapshot_b64: str, timestamp: float, pane_id: str) -> None:
+        """Update the most recent detection record for a person."""
+        with self._lock:
+            self._last_seen_cache[person_id] = {
+                "snapshot_base64": snapshot_b64,
+                "timestamp": timestamp,
+                "pane_id": pane_id,
+            }
+
+    def get_person_last_seen(self, person_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve the last known detection data for a person."""
+        with self._lock:
+            return self._last_seen_cache.get(person_id)
+
+    def set_poi_status(self, person_id: str, is_poi: bool) -> bool:
+        """Toggle a person's 'Person of Interest' status in DB and memory."""
+        with self._lock:
+            person = self._persons.get(person_id)
+            if not person:
+                return False
+            person.is_poi = is_poi
+
+        try:
+            with self._session_factory() as db:
+                row = db.query(KnownPersonModel).filter(KnownPersonModel.person_id == person_id).first()
+                if row:
+                    row.is_poi = is_poi
+                    db.commit()
+                    return True
+        except Exception as e:
+            logger.error(f"Failed to update POI status for {person_id}: {e}")
+        return False
+
     def register_person(
         self,
         name: str,
@@ -426,6 +472,7 @@ class IdentityRegistry:
         full_image: Optional[np.ndarray] = None,
         track_id: Optional[str] = None,
         extra_embeddings: Optional[List[List[float]]] = None,
+        is_poi: bool = False,
     ) -> KnownPersonRecord:
         """
         Register or update a known identity with ArcFace 512-d biometric descriptors.
@@ -445,8 +492,16 @@ class IdentityRegistry:
                     embeddings.extend(trk_history["embeddings"])
                 if trk_history["best_snapshot"]:
                     snapshot_b64 = trk_history["best_snapshot"]
+
+                # Immediately bind manual identity to the active spatial track ID
+                global_face_track_buffer.bind_manual_identity(
+                    track_id=track_id,
+                    person_id=pid,
+                    name=name.strip(),
+                    tag=tag.strip() or "Authorized",
+                )
             except Exception as e:
-                logger.debug(f"Could not retrieve track buffer for {track_id}: {e}")
+                logger.debug(f"Could not retrieve/bind track buffer for {track_id}: {e}")
 
         # 2. Ingest extra embeddings
         if extra_embeddings:
@@ -480,6 +535,7 @@ class IdentityRegistry:
             snapshot_base64=snapshot_b64,
             features=centroid,
             template_shape=gray_tpl.shape if gray_tpl is not None else (112, 112),
+            is_poi=is_poi,
             feature_gallery=gallery,
         )
 
@@ -527,6 +583,7 @@ class IdentityRegistry:
         images: List[np.ndarray],
         tag: str = "Authorized",
         person_id: Optional[str] = None,
+        is_poi: bool = False,
     ) -> Optional[KnownPersonRecord]:
         """Register identity manually from one or more uploaded full or cropped images."""
         if not images:
@@ -562,6 +619,7 @@ class IdentityRegistry:
             snapshot_base64=best_snapshot_b64,
             features=centroid,
             template_shape=tpl_shape,
+            is_poi=is_poi,
             feature_gallery=embeddings[:50],
         )
 
@@ -582,6 +640,7 @@ class IdentityRegistry:
                 if existing:
                     existing.name = record.name
                     existing.tag = record.tag
+                    existing.is_poi = record.is_poi
                     existing.face_descriptor = descriptor_payload
                     existing.snapshot_base64 = record.snapshot_base64
                 else:
@@ -589,6 +648,7 @@ class IdentityRegistry:
                         person_id=pid,
                         name=record.name,
                         tag=record.tag,
+                        is_poi=record.is_poi,
                         face_descriptor=descriptor_payload,
                         snapshot_base64=record.snapshot_base64,
                     )
@@ -599,6 +659,14 @@ class IdentityRegistry:
 
         logger.info(f"Manually registered person '{name}' [{pid}] with {len(embeddings)} frame embeddings")
         return record
+
+    def get_person_by_name(self, name: str) -> Optional[KnownPersonRecord]:
+        """Find a registered person by their name (exact match, case-insensitive)."""
+        with self._lock:
+            for person in self._persons.values():
+                if person.name.lower() == name.lower():
+                    return person
+        return None
 
     def delete_person(self, person_id: str) -> bool:
         """Remove a known person by ID from database and memory."""

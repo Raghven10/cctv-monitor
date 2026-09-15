@@ -13,21 +13,39 @@ venv/
 env/
 .env
 
-# ONNX model weights (large binary files — bundle separately)
+# Model weights (large binary files — bundle in docker/separately)
 *.onnx
+*.pt
+*.pth
+*.bin
+*.weights
+*.safetensors
 
-# SQLite databases
+# Media and video files
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+*.flv
+
+# SQLite databases & runtime data
 *.db
 *.db-shm
 *.db-wal
+*.sqlite
+*.sqlite3
 
-# App runtime data (events, snapshots, output)
-data/events/
-data/output/
-data/snapshots/
+# App runtime data (events, snapshots, videos, models)
+data/
 
 # Config overrides with secrets (keep poc.yaml template)
 config/calibration.json
+
+# Accidental / temp files
+*`
+*.bak
+*.tmp
 
 # Docker
 .dockerignore
@@ -56,3 +74,5 @@ htmlcov/
 # Distribution
 *.tar.gz
 *.tar
+*.zip
+

@@ -36,13 +36,23 @@ class LayoutStabilizer:
 
     def update(self, detected_layout: DiscoveredLayout) -> Tuple[DiscoveredLayout, bool]:
         """
-        Process a new layout observation.
+        Process a new layout observation with instant activation for valid grids.
         Returns: (active_layout, is_layout_changed_this_frame)
         """
         if self._active_layout is None:
             # First layout becomes active immediately
             self._active_layout = detected_layout
             logger.info(f"Initial active layout established: {detected_layout.layout_id} ({detected_layout.pane_count} panes)")
+            return self._active_layout, True
+
+        # Fast-switch: If active layout is empty (0 panes) and detected layout finds a valid CCTV grid (> 0 panes), activate immediately!
+        if self._active_layout.pane_count == 0 and detected_layout.pane_count > 0:
+            old_id = self._active_layout.layout_id
+            self._active_layout = detected_layout
+            self._candidate_layout = None
+            self._candidate_consecutive_frames = 0
+            self._layout_change_count += 1
+            logger.info(f"⚡ Instant layout activation: Switched from {old_id} to {detected_layout.layout_id} ({detected_layout.pane_count} panes)")
             return self._active_layout, True
 
         # Check if detected layout matches active layout
@@ -58,8 +68,9 @@ class LayoutStabilizer:
         else:
             self._candidate_consecutive_frames += 1
 
-        # Check if candidate layout has reached required confirmation frames
-        if self._candidate_consecutive_frames >= self.config.layout_frames_required:
+        # Require configured consecutive observations for layout transition confirmation
+        req_frames = max(1, getattr(self.config, "layout_frames_required", 2))
+        if self._candidate_consecutive_frames >= req_frames:
             old_id = self._active_layout.layout_id
             self._active_layout = self._candidate_layout
             self._candidate_layout = None
@@ -67,7 +78,7 @@ class LayoutStabilizer:
             self._layout_change_count += 1
             logger.info(
                 f"Layout changed from {old_id} to {self._active_layout.layout_id} "
-                f"({self._active_layout.pane_count} panes) after {self.config.layout_frames_required} confirmed frames."
+                f"({self._active_layout.pane_count} panes) after {req_frames} confirmed observations."
             )
             return self._active_layout, True
 
@@ -97,6 +108,14 @@ class CameraStabilizer:
         self.config = config
         self._pane_histories: Dict[str, deque] = {}
         self._stable_states: Dict[str, StablePaneState] = {}
+
+    @property
+    def pane_histories(self) -> Dict[str, deque]:
+        return self._pane_histories
+
+    @property
+    def stable_states(self) -> Dict[str, StablePaneState]:
+        return self._stable_states
 
     def reset(self) -> None:
         """Reset all histories (e.g. on layout change)."""

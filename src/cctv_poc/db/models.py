@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 from sqlalchemy import (
+    Boolean,
     Column,
     DateTime,
     Integer,
@@ -23,6 +24,7 @@ class KnownPersonModel(Base):
     face_descriptor = Column(JSON, nullable=True)  # Stored color/gradient histogram features
     snapshot_path = Column(String(255), nullable=True)
     snapshot_base64 = Column(Text, nullable=True)
+    is_poi = Column(Boolean, default=False, nullable=False)
     created_at = Column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -44,6 +46,7 @@ class KnownPersonModel(Base):
             "face_descriptor": self.face_descriptor,
             "snapshot_path": self.snapshot_path,
             "snapshot_base64": self.snapshot_base64,
+            "is_poi": self.is_poi,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }

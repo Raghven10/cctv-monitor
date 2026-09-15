@@ -11,7 +11,8 @@ from .interfaces import (
     TrackedObject,
     Tracker,
 )
-from .person_detector import FastLivePersonDetector
+from .person_detector import FastLivePersonDetector, YoloV11PersonDetector
+from .pane_activity_tracker import PaneActivityTrackerRegistry, global_pane_activity_tracker
 
 __all__ = [
     "AlertEvent",
@@ -20,8 +21,12 @@ __all__ = [
     "EvidenceStore",
     "FaceRecognizer",
     "FastLivePersonDetector",
+    "YoloV11PersonDetector",
+    "PaneActivityTrackerRegistry",
     "PersonDetector",
     "RuleEngine",
     "TrackedObject",
     "Tracker",
+    "global_pane_activity_tracker",
 ]
+

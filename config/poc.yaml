@@ -17,6 +17,7 @@ display:
   target_height: 2160
 layout:
   dynamic: true
+  manual_layout_file: config/manual_layout.json
   min_panes: 1
   max_panes: 64
   stability_frames: 10
@@ -27,6 +28,7 @@ detection:
   score_threshold: 0.7
   nms_threshold: 0.3
   min_face_size: 35
+  detection_interval: 3
 biometrics:
   match_threshold: 0.48
   model_name: InsightFace ArcFace ResNet-50 (512-d)
@@ -48,7 +50,7 @@ vlm:
   sample_interval_seconds: 3.0
   trigger_on_low_ocr_confidence: true
   trigger_on_layout_change: true
-  timeout_seconds: 3.0
+  timeout_seconds: 15.0
   provider: mock
   api_key: null
   base_url: https://api.openai.com/v1

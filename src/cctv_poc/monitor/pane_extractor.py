@@ -21,8 +21,8 @@ class ExtractedPane:
 
 
 def format_pane_id(index: int) -> str:
-    """Format 0-based index to P01, P02, ..."""
-    return f"P{index + 1:02d}"
+    """Format 0-based index to Pane-01, Pane-02, ..."""
+    return f"Pane-{index + 1:02d}"
 
 
 class PaneExtractor:
@@ -34,6 +34,8 @@ class PaneExtractor:
         layout: DiscoveredLayout,
     ) -> List[ExtractedPane]:
         """Extract cropped images and formatted IDs for all panes."""
+        if rectified_image is None or layout is None:
+            return []
         h, w = rectified_image.shape[:2]
         extracted: List[ExtractedPane] = []
 

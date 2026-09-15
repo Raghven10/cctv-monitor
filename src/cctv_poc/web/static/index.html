@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="stylesheet" href="/static/css/style.css?v=2">
 </head>
 <body>
 
@@ -26,29 +26,48 @@
       <button class="nav-tab active" id="tab-btn-monitor" onclick="switchMainTab('monitor')">
         🎥 Live Monitoring
       </button>
-      <button class="nav-tab" id="tab-btn-events" onclick="openEventsModal()">
-        📜 Activity Log <span id="event-badge-count" class="badge-counter">0</span>
-      </button>
-      <button class="nav-tab" id="tab-btn-identities" onclick="openIdentitiesModal()">
-        👤 Known Person Registry
-      </button>
-      <button class="nav-tab" id="tab-btn-config" onclick="switchMainTab('config')">
+      <button class="nav-tab" id="tab-btn-config" onclick="window.location.href='/static/config.html'">
         ⚙️ System Configuration
       </button>
     </nav>
 
     <!-- Quick Actions Bar -->
     <div class="controls-bar">
+      <!-- Simplified Layout Mode Selector: Automatic AI vs Manual Detection -->
+      <div class="layout-mode-group" style="display: flex; align-items: center; gap: 8px;">
+        <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Layout:</span>
+        <select id="select-layout-mode" class="btn" style="padding: 7px 14px; font-size: 0.84rem; font-weight: 700; border-color: var(--accent-cyan); background: rgba(10,14,26,0.95); color: var(--accent-cyan); cursor: pointer; border-radius: 6px; box-shadow: 0 0 10px rgba(0, 240, 255, 0.15);" onchange="onLayoutModeDropdownChange(this.value)">
+          <option value="AUTO">🤖 Automatic (AI Grid Scanning)</option>
+          <option value="MANUAL">📐 Manual Layout Detection</option>
+        </select>
+      </div>
+      <button class="btn btn-cyan" id="btn-open-zone-editor" onclick="openZoneEditorModal()" style="font-size: 0.8rem; font-weight: 700;" title="Configure Detection Zones, Doors, Boxes & Intrusion Alarms">
+        🎯 Edit Zones
+      </button>
+      <!-- Feed Source Mode: Live Camera vs Video Playback -->
+      <div class="feed-mode-toggle-group" title="Select CCTV input feed mode">
+        <button class="btn active" id="btn-mode-live-camera" onclick="switchToLiveCameraMode()">
+          📹 Live Camera
+        </button>
+        <button class="btn" id="btn-mode-video-playback" onclick="switchToVideoPlaybackMode()">
+          📼 Video Playback
+        </button>
+      </div>
+      <input type="file" id="cctv-video-file-input" accept="video/*,image/*" style="display: none;" onchange="handleCCTVFileUpload(event)">
+      <button class="btn active" id="btn-pipeline-mode" onclick="cyclePipelineMode()" style="border-color: rgba(255, 170, 51, 0.4); min-width: 170px;">
+        📺 CCTV Monitor
+      </button>
       <button class="btn" id="btn-test-alarm" onclick="testAlarmManual()" style="background: rgba(255, 51, 102, 0.15); border-color: var(--accent-red); color: #ff99b3;">
-        🚨 Test Buzzer & Voice
+        🚨 Test Buzzer
       </button>
       <button class="btn active" id="btn-audio-toggle" onclick="toggleAudio()" style="border-color: rgba(0, 240, 255, 0.4);">
-        🔊 Alarm Audio: ON
+        🔊 Audio: ON
       </button>
       <button class="btn" id="btn-view-toggle" onclick="toggleView()">
-        Perspective View: Original
+        Perspective: Orig
       </button>
     </div>
+
   </header>
 
   <!-- Notification Toast -->
@@ -57,27 +76,103 @@
   <!-- TAB 1: Live Monitoring View -->
   <main id="view-monitor" class="view-section active">
     <div class="stream-container">
+      <!-- Video Playback Controls Bar (shown when in Video Playback mode) -->
+      <div id="video-playback-controls-bar" style="display: none; background: rgba(15, 22, 40, 0.95); border: 1px solid rgba(0, 240, 255, 0.3); border-radius: 8px; padding: 8px 16px; margin-bottom: 12px; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; box-shadow: 0 4px 20px rgba(0,0,0,0.4);">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 1.1rem;">📼</span>
+          <span id="video-file-name" style="font-family: 'JetBrains Mono', monospace; font-size: 0.82rem; color: var(--accent-cyan); font-weight: 600;">No video loaded</span>
+          <button class="btn btn-cyan" onclick="document.getElementById('cctv-video-file-input').click()" style="padding: 4px 10px; font-size: 0.78rem; font-weight: 600;">
+            📁 Choose Video File
+          </button>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <button class="btn" id="btn-video-play-pause" onclick="toggleVideoPlayPause()" style="padding: 5px 12px; font-size: 0.8rem; font-weight: 600; min-width: 80px;">
+            ⏸ Pause
+          </button>
+          <button class="btn active" id="btn-video-loop" onclick="toggleVideoLoop()" style="padding: 5px 10px; font-size: 0.8rem;" title="Loop video continuously">
+            🔁 Loop: ON
+          </button>
+          <span id="video-time-display" style="font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; color: var(--text-secondary); min-width: 90px; text-align: right;">00:00 / 00:00</span>
+          <input type="range" id="video-seek-slider" min="0" max="100" value="0" style="width: 130px; cursor: pointer;" oninput="onVideoSeek(this.value)">
+        </div>
+      </div>
+
+      <!-- Webcam Disconnected Recovery Banner -->
+      <div id="webcam-disconnected-banner" style="display: none; background: rgba(255, 51, 102, 0.22); border: 1px solid var(--accent-red); border-radius: 8px; padding: 12px 18px; color: #ff99b3; font-weight: 700; display: none; align-items: center; gap: 12px; box-shadow: 0 0 15px rgba(255, 51, 102, 0.25);">
+        <span style="font-size: 1.5rem;">⚠️</span>
+        <div>
+          <div style="font-size: 0.95rem; letter-spacing: 0.5px;">Webcam disconnected</div>
+          <div style="font-size: 0.8rem; color: #ffd6e0; font-weight: normal; margin-top: 2px;">Attempting to reconnect automatically...</div>
+        </div>
+      </div>
+
       <!-- Live Alert Banner -->
       <div id="alert-banner" style="display: none; background: rgba(255, 51, 102, 0.15); border: 1px solid var(--accent-red); border-radius: 8px; padding: 12px 18px; color: #ff99b3; font-weight: 600; display: flex; align-items: center; gap: 10px; box-shadow: 0 0 15px rgba(255, 51, 102, 0.2); animation: pulseAlert 1s infinite alternate;">
         <span style="font-size: 1.4rem;">🚨</span>
         <span id="alert-text">ALERT ACTIVE</span>
       </div>
 
-      <div class="video-card" style="position: relative;">
+      <!-- Solo Camera Focused Inspection Banner -->
+      <div id="solo-pane-banner" style="display: none;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 1.2rem;">🔍</span>
+          <div>
+            <b id="solo-pane-title" style="color: var(--accent-cyan); font-family: 'JetBrains Mono', monospace;">P01 | CAM-01 [MAIN ENTRANCE]</b>
+            <span style="font-size: 0.8rem; color: var(--text-muted); margin-left: 8px;">(Solo Camera Focus Mode)</span>
+          </div>
+        </div>
+        <button class="btn btn-cyan" onclick="exitSoloPane()" style="padding: 6px 16px; font-size: 0.82rem; font-weight: 700; display: flex; align-items: center; gap: 6px;">
+          ← Back to Multi-Grid View
+        </button>
+      </div>
+
+      <!-- DYNAMIC SPLIT MULTI-PANE GRID VIEW (Appears once finalized) -->
+      <div id="split-grid-container" class="split-grid-wrapper" style="display: none;">
+        <!-- Dynamically rendered pane cards for P01, P02, P03, P04... -->
+      </div>
+
+      <!-- COMPOSITE FULL WALL VIEW (Default before finalization) -->
+      <div id="composite-video-card" class="video-card" style="display: block; position: relative; background: #070a14; min-height: 420px; overflow: hidden; border-radius: 8px;">
         <!-- Browser webcam video feed via getUserMedia() -->
         <video id="live-video" autoplay playsinline muted
           style="width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 8px;"></video>
+        <!-- Canvas for image file rendering -->
+        <canvas id="feed-canvas"
+          style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none; object-fit: cover; border-radius: 8px;"></canvas>
         <!-- Canvas overlay for face bounding boxes & identity labels -->
         <canvas id="detection-canvas"
-          style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"></canvas>
-        <!-- Camera permission / status banner -->
+          style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10;"></canvas>
+
+        <!-- Camera permission / status banner inside video card -->
         <div id="camera-status-banner"
-          style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-                 background: rgba(10,14,26,0.88); border: 1px solid rgba(0,240,255,0.3);
-                 border-radius: 10px; padding: 24px 32px; text-align: center;
-                 color: var(--text-secondary); font-family: 'JetBrains Mono', monospace; font-size: 0.85rem;">
-          <div style="font-size: 2rem; margin-bottom: 8px;">📷</div>
-          <div id="camera-status-text">Requesting camera permission…</div>
+          style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                 background: rgba(10,14,26,0.96); border: 1px solid rgba(0,240,255,0.5);
+                 border-radius: 12px; padding: 26px 32px; text-align: center;
+                 color: var(--text-secondary); font-family: 'JetBrains Mono', monospace; font-size: 0.85rem;
+                 box-shadow: 0 12px 40px rgba(0,0,0,0.9), 0 0 20px rgba(0,240,255,0.2); max-width: 520px; width: 92%; z-index: 25; backdrop-filter: blur(14px);">
+          <div style="font-size: 2.6rem; margin-bottom: 8px;">📷</div>
+          <h3 id="camera-status-title" style="color: var(--text-primary); margin: 0 0 8px 0; font-size: 1.15rem; font-family: 'Outfit', sans-serif; font-weight: 600;">
+            Camera Stream Access
+          </h3>
+          <div id="camera-status-text" style="line-height: 1.5; margin-bottom: 18px; color: var(--text-secondary); font-size: 0.84rem;">
+            Click <b>Start / Allow Camera Feed</b> below to connect your webcam.
+          </div>
+          
+          <div style="display: flex; flex-direction: column; gap: 10px; align-items: center; width: 100%;">
+            <button id="btn-start-camera" class="btn btn-cyan" onclick="initWebcam(true)" style="padding: 12px 22px; font-size: 0.95rem; font-weight: 700; width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; box-shadow: 0 0 15px rgba(0,240,255,0.4);">
+              🎥 Start / Allow Camera Feed
+            </button>
+            
+            <div id="camera-select-container" style="display: none; width: 100%;">
+              <select id="camera-device-select" class="btn" style="width: 100%; padding: 8px 12px; font-size: 0.82rem; border-color: rgba(0,240,255,0.4); background: rgba(15,22,40,0.95); color: var(--text-primary);" onchange="onCameraDeviceSelect(this.value)">
+                <option value="">Default Camera</option>
+              </select>
+            </div>
+
+            <button class="btn" onclick="switchToVideoPlaybackMode()" style="padding: 10px 16px; font-size: 0.86rem; width: 100%; border-color: rgba(0,240,255,0.5); color: var(--accent-cyan); font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;" title="Switch to Video Playback mode and choose a recorded CCTV video">
+              📼 Video Playback Mode (Upload / Choose CCTV Video)
+            </button>
+          </div>
         </div>
       </div>
 
@@ -104,6 +199,19 @@
     <aside class="sidebar">
       <div class="panel">
         <div class="panel-title">
+          <span>🔍 Person of Interest Search</span>
+        </div>
+        <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+          <input type="text" id="poi-search-input" class="text-input" placeholder="Enter name or tag..." style="flex: 1; font-size: 0.8rem;" onkeydown="if(event.key==='Enter') searchPOI()">
+          <button class="btn btn-cyan" style="padding: 0 12px; font-size: 0.8rem;" onclick="searchPOI()">Search</button>
+        </div>
+        <div id="poi-search-results" style="display: none; background: rgba(0,0,0,0.3); border: 1px solid var(--card-border); border-radius: 6px; padding: 10px; font-size: 0.8rem;">
+          <!-- Search results will be rendered here -->
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">
           <span id="panel-title-text">Live Persons & Identities</span>
           <span id="layout-tag" style="font-size: 0.75rem; color: var(--accent-cyan); font-family: 'JetBrains Mono', monospace;">LIVE SURVEILLANCE</span>
         </div>
@@ -124,371 +232,10 @@
     </aside>
   </main>
 
-  <!-- TAB 2: Full System Configuration & Settings View -->
-  <section id="view-config" class="view-section" style="display: none;">
-    <div class="config-wrapper">
-      <div class="config-header">
-        <div>
-          <h1 class="config-main-title">⚙️ System Configuration & Pipeline Settings</h1>
-          <p class="config-subtitle">Configure real-time biometrics, detection models, physical monitor parameters, audio alerts, and persistence.</p>
-        </div>
-        <div class="config-header-actions">
-          <button class="btn btn-secondary" onclick="resetConfiguration()">🔄 Reset to Defaults</button>
-          <button class="btn btn-primary" onclick="saveConfiguration()">💾 Save & Apply Live</button>
-        </div>
-      </div>
-
-      <div class="config-grid">
-        <!-- 1. AI Biometrics & Face Recognition -->
-        <div class="config-card">
-          <div class="config-card-header">
-            <div class="config-card-icon">🧠</div>
-            <div>
-              <div class="config-card-title">AI Biometrics & Face Recognition</div>
-              <div class="config-card-desc">InsightFace ArcFace ResNet-50 512-d angular metric engine</div>
-            </div>
-          </div>
-          <div class="config-card-body">
-            <div class="form-group">
-              <div class="form-label-row">
-                <label for="cfg-biometrics-threshold">Cosine Similarity Threshold</label>
-                <span class="range-val-badge" id="val-biometrics-threshold">0.48</span>
-              </div>
-              <input type="range" class="form-range" id="cfg-biometrics-threshold" min="0.30" max="0.75" step="0.01" value="0.48" oninput="updateRangeLabel('biometrics-threshold', this.value)">
-              <div class="form-help">Lower = more permissive (allows dark/angled faces); Higher = stricter authentication. (Recommended: 0.48 - 0.52).</div>
-            </div>
-
-            <div class="form-group">
-              <label for="cfg-biometrics-model">Face Embedding Model</label>
-              <select class="form-select" id="cfg-biometrics-model">
-                <option value="InsightFace ArcFace ResNet-50 (512-d)">InsightFace ArcFace ResNet-50 (512-d Deep Metric)</option>
-                <option value="OpenCV SFace 128-d">OpenCV SFace (128-d Fallback)</option>
-              </select>
-            </div>
-
-            <div class="form-group-toggle">
-              <div>
-                <div class="toggle-title">5-Point Landmark Similarity Alignment</div>
-                <div class="form-help">Aligns eyes, nose tip, and mouth corners to canonical 112×112 plane.</div>
-              </div>
-              <label class="switch">
-                <input type="checkbox" id="cfg-biometrics-alignment" checked>
-                <span class="slider"></span>
-              </label>
-            </div>
-          </div>
-        </div>
-
-        <!-- 2. Face & Person Neural Detector -->
-        <div class="config-card">
-          <div class="config-card-header">
-            <div class="config-card-icon">👤</div>
-            <div>
-              <div class="config-card-title">Neural Face & Person Detector</div>
-              <div class="config-card-desc">OpenCV YuNet Deep Neural Network Detector</div>
-            </div>
-          </div>
-          <div class="config-card-body">
-            <div class="form-group">
-              <div class="form-label-row">
-                <label for="cfg-detection-score">Face Detection Confidence Threshold</label>
-                <span class="range-val-badge" id="val-detection-score">0.70</span>
-              </div>
-              <input type="range" class="form-range" id="cfg-detection-score" min="0.40" max="0.95" step="0.05" value="0.70" oninput="updateRangeLabel('detection-score', this.value)">
-              <div class="form-help">Minimum neural score to consider a face candidate (rejects furniture/tables).</div>
-            </div>
-
-            <div class="form-group">
-              <div class="form-label-row">
-                <label for="cfg-detection-nms">NMS Overlap Threshold</label>
-                <span class="range-val-badge" id="val-detection-nms">0.30</span>
-              </div>
-              <input type="range" class="form-range" id="cfg-detection-nms" min="0.10" max="0.60" step="0.05" value="0.30" oninput="updateRangeLabel('detection-nms', this.value)">
-              <div class="form-help">Suppresses duplicate overlapping bounding boxes for the same person.</div>
-            </div>
-
-            <div class="form-group">
-              <div class="form-label-row">
-                <label for="cfg-detection-minsize">Minimum Face Dimension (px)</label>
-                <span class="range-val-badge" id="val-detection-minsize">35 px</span>
-              </div>
-              <input type="range" class="form-range" id="cfg-detection-minsize" min="20" max="100" step="5" value="35" oninput="updateRangeLabel('detection-minsize', this.value + ' px')">
-              <div class="form-help">Rejects microscopic noise artifacts smaller than this pixel width.</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 3. Intrusion Alerts & Voice Announcements -->
-        <div class="config-card">
-          <div class="config-card-header">
-            <div class="config-card-icon">🚨</div>
-            <div>
-              <div class="config-card-title">Intrusion Alerts & Announcements</div>
-              <div class="config-card-desc">Multi-frame temporal analysis & anti-spam gating</div>
-            </div>
-          </div>
-          <div class="config-card-body">
-            <div class="form-group">
-              <div class="form-label-row">
-                <label for="cfg-alert-frames">Multi-Frame Confirmation Threshold</label>
-                <span class="range-val-badge" id="val-alert-frames">5 frames</span>
-              </div>
-              <input type="range" class="form-range" id="cfg-alert-frames" min="1" max="15" step="1" value="5" oninput="updateRangeLabel('alert-frames', this.value + ' frames')">
-              <div class="form-help">Consecutive positive frames required before raising alarm (eliminates single-frame flickers).</div>
-            </div>
-
-            <div class="form-group">
-              <div class="form-label-row">
-                <label for="cfg-alert-cooldown">Room Clearance Cooldown (Hysteresis)</label>
-                <span class="range-val-badge" id="val-alert-cooldown">6.0s</span>
-              </div>
-              <input type="range" class="form-range" id="cfg-alert-cooldown" min="1.0" max="20.0" step="0.5" value="6.0" oninput="updateRangeLabel('alert-cooldown', this.value + 's')">
-              <div class="form-help">Seconds room must stay completely clear before resetting intrusion gate for next entry.</div>
-            </div>
-
-            <div class="form-group-toggle">
-              <div>
-                <div class="toggle-title">Spoken Voice Announcement (TTS)</div>
-                <div class="form-help">Spoken alert message triggered once upon confirmed intrusion.</div>
-              </div>
-              <label class="switch">
-                <input type="checkbox" id="cfg-alert-voice" checked>
-                <span class="slider"></span>
-              </label>
-            </div>
-
-            <div class="form-group-toggle">
-              <div>
-                <div class="toggle-title">Host Audio Buzzer / Siren</div>
-                <div class="form-help">Hardware beep/siren alert tone.</div>
-              </div>
-              <label class="switch">
-                <input type="checkbox" id="cfg-alert-buzzer" checked>
-                <span class="slider"></span>
-              </label>
-            </div>
-
-            <div class="form-group">
-              <label for="cfg-alert-text">Voice Announcement Phrase</label>
-              <input type="text" class="form-input" id="cfg-alert-text" value="Unknown person detected!">
-            </div>
-          </div>
-        </div>
-
-        <!-- 4. Physical Monitor Display Discovery -->
-        <div class="config-card">
-          <div class="config-card-header">
-            <div class="config-card-icon">🖥️</div>
-            <div>
-              <div class="config-card-title">Physical Display & Monitor Discovery</div>
-              <div class="config-card-desc">Bezel localization, perspective homography & area filters</div>
-            </div>
-          </div>
-          <div class="config-card-body">
-            <div class="form-group-toggle">
-              <div>
-                <div class="toggle-title">Automatic Display Detection</div>
-                <div class="form-help">Locate physical monitor edges in camera view.</div>
-              </div>
-              <label class="switch">
-                <input type="checkbox" id="cfg-display-autodetect" checked>
-                <span class="slider"></span>
-              </label>
-            </div>
-
-            <div class="form-group">
-              <div class="form-label-row">
-                <label for="cfg-display-minarea">Minimum Screen Area Fraction</label>
-                <span class="range-val-badge" id="val-display-minarea">12%</span>
-              </div>
-              <input type="range" class="form-range" id="cfg-display-minarea" min="0.05" max="0.60" step="0.01" value="0.12" oninput="updateRangeLabel('display-minarea', Math.round(this.value * 100) + '%')">
-              <div class="form-help">Allows detecting smaller screens/laptops in view (Default: 12%).</div>
-            </div>
-
-            <div class="form-group">
-              <label for="cfg-display-calibmode">Calibration Mode</label>
-              <select class="form-select" id="cfg-display-calibmode">
-                <option value="assisted">Assisted (Auto with Stored Fallback)</option>
-                <option value="auto">Pure Auto Computer Vision</option>
-                <option value="manual">Manual Corner Override</option>
-              </select>
-            </div>
-
-            <div class="form-group">
-              <label for="cfg-display-targetres">Target Rectification Resolution</label>
-              <select class="form-select" id="cfg-display-targetres">
-                <option value="3840x2160">3840 × 2160 (4K UHD Master)</option>
-                <option value="1920x1080">1920 × 1080 (1080p FHD Standard)</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        <!-- 5. Dynamic CCTV Layout & Grid Discovery -->
-        <div class="config-card">
-          <div class="config-card-header">
-            <div class="config-card-icon">📐</div>
-            <div>
-              <div class="config-card-title">Dynamic CCTV Grid & Layout Discovery</div>
-              <div class="config-card-desc">Separator projection analysis without hardcoded assumptions</div>
-            </div>
-          </div>
-          <div class="config-card-body">
-            <div class="form-group-toggle">
-              <div>
-                <div class="toggle-title">Dynamic Grid Inference</div>
-                <div class="form-help">Automatically infer 1x1, 2x2, 3x3, 4x4, 2x3 grids.</div>
-              </div>
-              <label class="switch">
-                <input type="checkbox" id="cfg-layout-dynamic" checked>
-                <span class="slider"></span>
-              </label>
-            </div>
-
-            <div class="form-group">
-              <div class="form-label-row">
-                <label for="cfg-layout-stability">Layout Stability Frames</label>
-                <span class="range-val-badge" id="val-layout-stability">10 frames</span>
-              </div>
-              <input type="range" class="form-range" id="cfg-layout-stability" min="3" max="30" step="1" value="10" oninput="updateRangeLabel('layout-stability', this.value + ' frames')">
-              <div class="form-help">Frames required to stabilize and lock new multi-pane grid layout.</div>
-            </div>
-
-            <div class="form-group">
-              <label for="cfg-layout-aspect">Expected Pane Aspect Ratio</label>
-              <select class="form-select" id="cfg-layout-aspect">
-                <option value="auto">Auto (Adaptive)</option>
-                <option value="16:9">16:9 (Widescreen)</option>
-                <option value="4:3">4:3 (Traditional)</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        <!-- 6. Video Acquisition & Device -->
-        <div class="config-card">
-          <div class="config-card-header">
-            <div class="config-card-icon">📹</div>
-            <div>
-              <div class="config-card-title">Video Acquisition & Camera</div>
-              <div class="config-card-desc">Webcam device ID, frame rate & buffer management</div>
-            </div>
-          </div>
-          <div class="config-card-body">
-            <div class="form-group">
-              <label for="cfg-video-source">Source Type</label>
-              <select class="form-select" id="cfg-video-source">
-                <option value="webcam">Live Webcam</option>
-                <option value="file">Pre-Recorded Video File</option>
-                <option value="rtsp">RTSP / Network IP Stream</option>
-              </select>
-            </div>
-
-            <div class="form-group">
-              <label for="cfg-video-device">Camera Device Index / Stream URI</label>
-              <input type="text" class="form-input" id="cfg-video-device" value="0">
-              <div class="form-help">Device index (0 = default webcam) or file path / RTSP URL.</div>
-            </div>
-
-            <div class="form-group">
-              <div class="form-label-row">
-                <label for="cfg-video-fps">Requested Acquisition FPS</label>
-                <span class="range-val-badge" id="val-video-fps">30 FPS</span>
-              </div>
-              <input type="range" class="form-range" id="cfg-video-fps" min="10" max="60" step="5" value="30" oninput="updateRangeLabel('video-fps', this.value + ' FPS')">
-            </div>
-          </div>
-        </div>
-
-        <!-- 7. OCR & VLM AI Camera Labeling -->
-        <div class="config-card">
-          <div class="config-card-header">
-            <div class="config-card-icon">🔤</div>
-            <div>
-              <div class="config-card-title">OCR & VLM Camera Identification</div>
-              <div class="config-card-desc">Automatic camera label reading and multi-modal fusion</div>
-            </div>
-          </div>
-          <div class="config-card-body">
-            <div class="form-group-toggle">
-              <div>
-                <div class="toggle-title">OCR Text Engine</div>
-                <div class="form-help">Extract on-screen camera labels (CAM 01, Entrance, etc.).</div>
-              </div>
-              <label class="switch">
-                <input type="checkbox" id="cfg-ocr-enabled" checked>
-                <span class="slider"></span>
-              </label>
-            </div>
-
-            <div class="form-group">
-              <div class="form-label-row">
-                <label for="cfg-ocr-interval">OCR Sample Interval (Frames)</label>
-                <span class="range-val-badge" id="val-ocr-interval">15 frames</span>
-              </div>
-              <input type="range" class="form-range" id="cfg-ocr-interval" min="5" max="60" step="5" value="15" oninput="updateRangeLabel('ocr-interval', this.value + ' frames')">
-            </div>
-
-            <div class="form-group">
-              <label for="cfg-vlm-provider">VLM Validation Provider</label>
-              <select class="form-select" id="cfg-vlm-provider">
-                <option value="mock">Built-in Semantic Analyzer (Local Mock)</option>
-                <option value="gemini">Google Gemini Multi-Modal API</option>
-                <option value="openai">OpenAI Vision API</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        <!-- 8. Database & Event Storage -->
-        <div class="config-card">
-          <div class="config-card-header">
-            <div class="config-card-icon">💾</div>
-            <div>
-              <div class="config-card-title">Database & Event Persistence</div>
-              <div class="config-card-desc">PostgreSQL / SQLite activity logging & snapshot archive</div>
-            </div>
-          </div>
-          <div class="config-card-body">
-            <div class="form-group-toggle">
-              <div>
-                <div class="toggle-title">Save Unusual Event Frames & Snapshots</div>
-                <div class="form-help">Stores full-resolution JPEG frames for every intrusion and layout shift.</div>
-              </div>
-              <label class="switch">
-                <input type="checkbox" id="cfg-output-snapshots" checked>
-                <span class="slider"></span>
-              </label>
-            </div>
-
-            <div class="form-group">
-              <label for="cfg-output-dir">Snapshot Storage Directory</label>
-              <input type="text" class="form-input" id="cfg-output-dir" value="data/output">
-            </div>
-
-            <div class="form-group">
-              <label for="cfg-output-jsonl">JSONL Telemetry Log File</label>
-              <input type="text" class="form-input" id="cfg-output-jsonl" value="data/output/results.jsonl">
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Bottom Save Action Bar -->
-      <div class="config-footer-bar">
-        <div>
-          <span style="color: var(--text-muted); font-size: 0.85rem;">Changes are validated with Pydantic and applied live to the running pipeline immediately.</span>
-        </div>
-        <div style="display: flex; gap: 12px;">
-          <button class="btn btn-secondary" onclick="resetConfiguration()">🔄 Reset to Defaults</button>
-          <button class="btn btn-primary" onclick="saveConfiguration()" style="padding: 10px 24px; font-size: 0.95rem;">💾 Save & Apply Live</button>
-        </div>
-      </div>
-    </div>
-  </section>
+  <!-- Tag & Identify Modal -->
 
   <!-- Tag & Identify Modal -->
-  <div class="modal-overlay" id="tag-modal">
+  <div class="modal-overlay" id="tag-modal" onclick="if(event.target === this) closeTagModal()">
     <div class="modal-card">
       <div class="modal-title">🏷️ Identify & Authorize Person</div>
       
@@ -503,16 +250,17 @@
 
       <div class="input-group">
         <label class="input-label" for="tag-person-name">Full Name / Identifier</label>
-        <input class="text-input" id="tag-person-name" type="text" placeholder="e.g. Rahul Sharma, Security Officer 1" autofocus>
+        <input class="text-input" id="tag-person-name" type="text" placeholder="e.g. Rahul Sharma, Security Officer 1" onkeydown="if(event.key==='Enter') submitTagPerson()" autofocus>
       </div>
 
       <div class="input-group">
         <label class="input-label" for="tag-person-role">Role / Tag</label>
-        <input class="text-input" id="tag-person-role" type="text" placeholder="e.g. Authorized, Admin, Employee, Family" value="Authorized">
+        <input class="text-input" id="tag-person-role" type="text" placeholder="e.g. Authorized, Admin, Employee, Family" value="Authorized" onkeydown="if(event.key==='Enter') submitTagPerson()">
       </div>
 
       <div class="modal-actions">
         <button class="btn" onclick="closeTagModal()">Cancel</button>
+        <button id="btn-untag-person" class="btn" style="color: var(--accent-red); border-color: rgba(255,51,102,0.3); display: none;" onclick="handleUntagCurrentPerson()">🗑️ Untag Person</button>
         <button class="btn btn-green" onclick="submitTagPerson()">✅ Authorize & Mark Known (Multi-Frame)</button>
       </div>
     </div>
@@ -568,55 +316,6 @@
     </div>
   </div>
 
-  <!-- Known Person Registry Modal -->
-  <div class="modal-overlay" id="identities-modal">
-    <div class="events-modal-card">
-      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--card-border); padding-bottom: 12px;">
-        <div class="modal-title">
-          <span>👤 Known Person & Authorized Biometrics Registry</span>
-          <span id="identities-modal-count" style="font-size: 0.8rem; font-weight: 600; color: var(--accent-cyan);">(0 Active Profiles)</span>
-        </div>
-        <div style="display: flex; gap: 8px;">
-          <button class="btn btn-green" style="padding: 4px 10px; font-size: 0.78rem;" onclick="openManualRegisterModal()">➕ Register Person Manually</button>
-          <button class="btn" style="padding: 4px 10px; font-size: 0.78rem; background: rgba(255, 51, 102, 0.2); border-color: var(--accent-red); color: #ff99b3;" onclick="clearAllIdentities()">🗑️ Clear All Profiles</button>
-          <button class="btn" style="padding: 4px 10px; font-size: 0.78rem;" onclick="closeIdentitiesModal()">✕ Close</button>
-        </div>
-      </div>
-      <div class="events-grid" id="identities-list-container" style="max-height: 480px; overflow-y: auto;">
-        <!-- Registered persons loaded dynamically -->
-      </div>
-    </div>
-  </div>
-
-  <!-- Activity Log & Unusual Frames Modal -->
-  <div class="modal-overlay" id="events-modal">
-    <div class="events-modal-card">
-      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--card-border); padding-bottom: 12px;">
-        <div class="modal-title">
-          <span>📜 Unusual Frames & Activity Log</span>
-          <span id="events-modal-count" style="font-size: 0.8rem; font-weight: 600; color: var(--accent-cyan);">(0 Events Saved)</span>
-        </div>
-        <div style="display: flex; gap: 8px;">
-          <button class="btn" style="padding: 4px 10px; font-size: 0.78rem; background: rgba(255, 51, 102, 0.2); border-color: var(--accent-red); color: #ff99b3;" onclick="clearAllEventsLog()">🗑️ Clear Log</button>
-          <button class="btn" style="padding: 4px 10px; font-size: 0.78rem;" onclick="closeEventsModal()">✕ Close</button>
-        </div>
-      </div>
-
-      <!-- Filters -->
-      <div style="display: flex; gap: 8px; align-items: center;">
-        <button class="filter-btn active" id="filter-all" onclick="setEventFilter('all')">All Events</button>
-        <button class="filter-btn" id="filter-crit" onclick="setEventFilter('CRITICAL')">🚨 Intrusions (Critical)</button>
-        <button class="filter-btn" id="filter-layout" onclick="setEventFilter('LAYOUT_CHANGED')">📐 Layout Changes</button>
-        <button class="filter-btn" id="filter-warn" onclick="setEventFilter('WARNING')">⚠️ Warnings</button>
-      </div>
-
-      <!-- Events List -->
-      <div class="events-grid" id="events-list-container">
-        <!-- Event cards loaded dynamically -->
-      </div>
-    </div>
-  </div>
-
   <!-- Lightbox Snapshot Viewer -->
   <div class="lightbox-overlay" id="lightbox-modal" onclick="closeLightbox()">
     <img id="lightbox-img" class="lightbox-img" src="" alt="Full Snapshot">
@@ -624,6 +323,316 @@
     <div style="font-size: 0.75rem; color: var(--text-muted);">Click anywhere to close</div>
   </div>
 
-  <script src="/static/js/app.js"></script>
+  <!-- 4-Corner TV Display Calibration Modal -->
+  <div class="modal-overlay" id="calibration-modal">
+    <div class="modal-card" style="max-width: 780px; width: 95%;">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--card-border); padding-bottom: 10px;">
+        <div class="modal-title">
+          <span>🎯 4-Corner TV Display Calibration</span>
+        </div>
+        <button class="btn" style="padding: 4px 10px; font-size: 0.78rem;" onclick="closeCalibrationModal()">✕ Close</button>
+      </div>
+
+      <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 8px;">
+        Click or drag the 4 corner handles (<span style="color: #00f0ff;">TL</span>, <span style="color: #00ff88;">TR</span>, <span style="color: #ffaa33;">BR</span>, <span style="color: #ff3366;">BL</span>) onto the physical outer edges of your TV/CCTV screen.
+      </div>
+
+      <div style="position: relative; margin-top: 12px; background: #000; border-radius: 8px; overflow: hidden; display: flex; justify-content: center; align-items: center;">
+        <canvas id="calibration-canvas" style="max-width: 100%; max-height: 440px; cursor: crosshair; display: block;"></canvas>
+      </div>
+
+      <div class="modal-actions" style="margin-top: 14px; display: flex; justify-content: space-between; align-items: center;">
+        <div style="display: flex; gap: 8px;">
+          <button class="btn" style="background: rgba(255, 51, 102, 0.15); border-color: var(--accent-red); color: #ff99b3; font-size: 0.8rem;" onclick="resetCalibration()">
+            🗑️ Reset to Auto
+          </button>
+          <button class="btn btn-cyan" style="font-size: 0.8rem;" onclick="autoDetectCalibrationCorners()">
+            ⚡ Auto-Snap Corners
+          </button>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn" onclick="closeCalibrationModal()">Cancel</button>
+          <button class="btn btn-green" onclick="saveCalibrationCorners()">
+            💾 Save & Rectify TV
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Interactive CCTV Grid Pane Readjuster Modal (2-Step Setup Wizard) -->
+  <div class="modal-overlay" id="grid-editor-modal" style="display: none;">
+    <div class="modal-card" style="max-width: 900px; width: 96%; max-height: 94vh; display: flex; flex-direction: column;">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--card-border); padding-bottom: 10px;">
+        <div class="modal-title" style="display: flex; align-items: center; gap: 8px;">
+          <span>📐 Manual Grid Layout Setup</span>
+          <span id="grid-editor-status-badge" style="font-size: 0.75rem; padding: 2px 8px; border-radius: 4px; background: rgba(0, 240, 255, 0.15); border: 1px solid var(--accent-cyan); color: var(--accent-cyan); font-family: 'JetBrains Mono', monospace;">Step 1: Mark Screen Corners</span>
+        </div>
+        <button class="btn" style="padding: 4px 10px; font-size: 0.78rem;" onclick="closeGridEditorModal()">✕ Close</button>
+      </div>
+
+      <!-- Wizard Step Tabs -->
+      <div class="wizard-tab-bar" style="margin-top: 10px;">
+        <div class="wizard-tab active" id="grid-wizard-step-1-tab" onclick="goToWizardStep(1)">
+          <span class="wizard-badge">1</span>
+          <span>Mark 4 Screen Corners</span>
+        </div>
+        <div class="wizard-tab" id="grid-wizard-step-2-tab" onclick="goToWizardStep(2)">
+          <span class="wizard-badge">2</span>
+          <span>Flatten Screen & Drag Grid Lines</span>
+        </div>
+      </div>
+
+      <!-- STEP 1 Controls (Corner Alignment) -->
+      <div id="grid-wizard-step-1-controls" style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px; background: rgba(10, 14, 26, 0.85); border: 1px solid var(--card-border); border-radius: 8px; padding: 10px 14px;">
+        <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between;">
+          <div style="display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--text-secondary);">
+            <span>🎯 <b>Step 1</b>: Mark the <b>4 physical corners</b> of your screen monitor (TL, TR, BR, BL).</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <button class="btn" style="padding: 4px 10px; font-size: 0.78rem;" onclick="autoSnapCalibrationCorners()" title="Snap corners to screen borders">
+              ⚡ Auto-Snap Corners
+            </button>
+            <button class="btn" style="padding: 4px 10px; font-size: 0.78rem;" onclick="resetCalibrationCorners()" title="Reset corners to full frame">
+              🔄 Reset Corners
+            </button>
+            <button class="btn btn-cyan" style="padding: 5px 14px; font-size: 0.82rem; font-weight: 700;" onclick="goToWizardStep(2)">
+              ➡️ Next: Flatten Screen & Set Grid
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 2 Controls (Flattened Screen & Draggable Grid Lines) -->
+      <div id="grid-wizard-step-2-controls" style="display: none; flex-direction: column; gap: 8px; margin-top: 8px; background: rgba(10, 14, 26, 0.85); border: 1px solid var(--card-border); border-radius: 8px; padding: 10px 14px;">
+        <!-- Row 1: Grid Presets & Dimensions -->
+        <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase;">Grid Layout:</span>
+            <select id="modal-grid-preset-select" class="btn" style="padding: 5px 12px; font-size: 0.82rem; font-weight: 700; border-color: var(--accent-cyan); background: rgba(15, 23, 42, 0.95); color: var(--accent-cyan); cursor: pointer;" onchange="onModalGridPresetChange(this.value)">
+              <option value="2X2" selected>2x2 (4 Panes - Quad View)</option>
+              <option value="1X1">1x1 (Single Pane)</option>
+              <option value="1X2">1x2 (2 Panes Horizontal)</option>
+              <option value="2X1">2x1 (2 Panes Vertical)</option>
+              <option value="2X3">2x3 (6 Panes)</option>
+              <option value="3X2">3x2 (6 Panes)</option>
+              <option value="3X3">3x3 (9 Panes)</option>
+              <option value="3X4">3x4 (12 Panes)</option>
+              <option value="4X3">4x3 (12 Panes)</option>
+              <option value="4X4">4x4 (16 Panes)</option>
+              <option value="CUSTOM">⚙️ Custom Manual Dividers</option>
+            </select>
+          </div>
+
+          <!-- Row/Col Steppers -->
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="display: flex; align-items: center; gap: 4px;">
+              <span style="font-size: 0.75rem; color: var(--text-secondary); font-weight: 600;">Rows:</span>
+              <button class="btn" style="padding: 2px 7px; font-size: 0.75rem;" onclick="changeEditorRows(-1)">-</button>
+              <span id="editor-row-count" style="font-family: 'JetBrains Mono', monospace; font-weight: 700; color: var(--accent-cyan); min-width: 14px; text-align: center;">2</span>
+              <button class="btn" style="padding: 2px 7px; font-size: 0.75rem;" onclick="changeEditorRows(1)">+</button>
+            </div>
+            <div style="display: flex; align-items: center; gap: 4px;">
+              <span style="font-size: 0.75rem; color: var(--text-secondary); font-weight: 600;">Cols:</span>
+              <button class="btn" style="padding: 2px 7px; font-size: 0.75rem;" onclick="changeEditorCols(-1)">-</button>
+              <span id="editor-col-count" style="font-family: 'JetBrains Mono', monospace; font-weight: 700; color: var(--accent-cyan); min-width: 14px; text-align: center;">2</span>
+              <button class="btn" style="padding: 2px 7px; font-size: 0.75rem;" onclick="changeEditorCols(1)">+</button>
+            </div>
+            <button class="btn" style="padding: 3px 10px; font-size: 0.75rem; border-color: rgba(0, 240, 255, 0.4);" onclick="distributeEditorEvenly()" title="Equalize divider spacing">
+              ⚖️ Equalize Spacing
+            </button>
+          </div>
+        </div>
+
+        <!-- Row 2: Selected Pane Labeling (AI Suggestion + Manual Override) -->
+        <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 8px;">
+          <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 280px;">
+            <span style="font-size: 0.78rem; color: var(--text-muted); font-weight: 600;">Selected:</span>
+            <span id="editor-active-pane-badge" style="font-size: 0.8rem; padding: 3px 10px; border-radius: 4px; background: rgba(0, 240, 255, 0.15); border: 1px solid var(--accent-cyan); color: var(--accent-cyan); font-family: 'JetBrains Mono', monospace; font-weight: 700;">Pane-01</span>
+            <input type="text" id="editor-pane-label-input" placeholder="Rename pane (e.g. CAM-01 Entrance)" oninput="onActivePaneLabelInput(this.value)" style="flex: 1; min-width: 180px; max-width: 320px; padding: 5px 10px; font-size: 0.8rem; background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(0, 240, 255, 0.4); border-radius: 4px; color: #fff; outline: none;">
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <button class="btn btn-cyan" id="btn-editor-ai-label" onclick="suggestActivePaneLabel()" style="padding: 5px 12px; font-size: 0.8rem; font-weight: 700; display: flex; align-items: center; gap: 6px;">
+              ✨ AI Suggest Label
+            </button>
+            <button class="btn" style="padding: 5px 10px; font-size: 0.78rem;" onclick="suggestAllPanesLabelsAI()" title="Auto-assign smart labels across all panes">
+              ✨ AI Label All
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Instruction Tip -->
+      <div id="grid-editor-instruction-tip" style="font-size: 0.78rem; color: var(--text-muted); margin-top: 6px; display: flex; align-items: center; gap: 6px;">
+        <span>💡</span>
+        <span id="grid-editor-tip-text">Drag the <b>4 corner pins (TL, TR, BR, BL)</b> to outline the physical screen display.</span>
+      </div>
+
+      <!-- Interactive Canvas Container -->
+      <div style="position: relative; margin-top: 8px; background: #000; border: 1px solid var(--card-border); border-radius: 8px; overflow: hidden; display: flex; justify-content: center; align-items: center; min-height: 300px; flex: 1;">
+        <canvas id="grid-editor-canvas" style="max-width: 100%; max-height: 500px; display: block;"></canvas>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="modal-actions" style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center;">
+        <div style="display: flex; gap: 8px;">
+          <button class="btn" id="btn-wizard-back-corners" style="display: none; font-size: 0.8rem;" onclick="goToWizardStep(1)">
+            ⬅️ Back to Corners
+          </button>
+          <button class="btn" style="background: rgba(255, 51, 102, 0.15); border-color: var(--accent-red); color: #ff99b3; font-size: 0.8rem;" onclick="resetManualGridLayout()">
+            🔄 Reset to Auto-Detect
+          </button>
+          <button class="btn btn-cyan" style="font-size: 0.8rem;" onclick="openZoneEditorModal()">
+            🎯 Edit Zones
+          </button>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button id="btn-wizard-next-step" class="btn btn-cyan" style="font-weight: 700; padding: 8px 20px; font-size: 0.88rem;" onclick="goToWizardStep(2)">
+            ➡️ Next: Flatten Screen & Set Grid
+          </button>
+          <button id="btn-wizard-finalize" class="btn btn-green" style="display: none; font-weight: 700; padding: 8px 24px; font-size: 0.88rem;" onclick="saveManualGridLayout(true)">
+            🔒 Finalise Layout
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ROI / Zone Editor Modal -->
+  <div class="modal-overlay" id="zone-editor-modal" style="display: none;">
+    <div class="modal-card" style="max-width: 920px; width: 96%; display: flex; flex-direction: column; max-height: 94vh;">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--card-border); padding-bottom: 10px;">
+        <div class="modal-title" style="display: flex; align-items: center; gap: 8px;">
+          <span>🎯 ROI / Zone Configuration Editor</span>
+          <span id="zone-editor-pane-badge" style="font-size: 0.75rem; padding: 2px 8px; border-radius: 4px; background: rgba(0, 240, 255, 0.15); border: 1px solid var(--accent-cyan); color: var(--accent-cyan); font-family: 'JetBrains Mono', monospace;">Pane-01</span>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <button class="btn btn-cyan" style="padding: 4px 10px; font-size: 0.78rem;" onclick="refreshZoneEditorSnapshot()">📸 Refresh Frame</button>
+          <button class="btn" style="padding: 4px 10px; font-size: 0.78rem;" onclick="closeZoneEditorModal()">✕ Close</button>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 320px; gap: 16px; margin-top: 12px; overflow: hidden; flex: 1;">
+        <!-- Left: Drawing Canvas -->
+        <div style="position: relative; background: #000; border: 1px solid var(--card-border); border-radius: 8px; overflow: hidden; display: flex; justify-content: center; align-items: center; cursor: crosshair;">
+          <canvas id="zone-editor-canvas" style="max-width: 100%; max-height: 500px; display: block;"></canvas>
+          <div style="position: absolute; bottom: 12px; left: 12px; background: rgba(0,0,0,0.7); color: #fff; font-size: 0.75rem; padding: 4px 8px; border-radius: 4px; pointer-events: none; border: 1px solid rgba(255,255,255,0.2);">
+            🖱️ Drag to draw zone | Click zone to edit
+          </div>
+        </div>
+
+        <!-- Right: Zone Properties Panel -->
+        <div class="panel" style="background: rgba(15, 22, 40, 0.95); border: 1px solid var(--card-border); border-radius: 8px; padding: 16px; overflow-y: auto; max-height: 500px;">
+          <div style="font-weight: 700; font-size: 0.9rem; margin-bottom: 12px; color: var(--accent-cyan); display: flex; align-items: center; gap: 6px;">
+            ⚙️ Zone Properties
+          </div>
+
+          <div id="zone-props-empty" style="text-align: center; color: var(--text-muted); font-size: 0.8rem; margin-top: 20px;">
+            Select or draw a zone to edit its properties.
+          </div>
+
+          <div id="zone-props-form" style="display: none; flex-direction: column; gap: 12px;">
+            <div class="input-group">
+              <label class="input-label">Zone Label</label>
+              <input type="text" id="zone-label-input" class="text-input" style="font-size: 0.8rem;">
+            </div>
+
+            <div class="input-group">
+              <label class="input-label">Zone Type</label>
+              <select id="zone-type-select" class="form-select" style="font-size: 0.8rem;">
+                <option value="door">🚪 Door / Entrance (Alarm on Entry)</option>
+                <option value="entry">🚪 Entry Way / Gate</option>
+                <option value="object_box">📦 Object / Box (Lift & Theft Watch)</option>
+                <option value="restricted">⛔ Restricted Zone (Intrusion Alarm)</option>
+                <option value="workstation">💻 Workstation / Desk</option>
+                <option value="waiting">⏳ Waiting / Queue Area</option>
+                <option value="general">🌐 General Monitored Zone</option>
+              </select>
+            </div>
+
+            <div class="input-group" style="background: rgba(0,0,0,0.25); padding: 8px; border-radius: 6px; border: 1px solid var(--card-border);">
+              <label class="input-label" style="color: var(--accent-cyan); font-weight: 700;">Zone Alarm Triggers</label>
+              <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 4px;">
+                <label style="display: flex; align-items: center; gap: 6px; font-size: 0.76rem; color: #fff; cursor: pointer;">
+                  <input type="checkbox" id="zone-alarm-entry-cb" checked onchange="updateZoneProperties()"> 🚨 Sound Alarm on Entry (Door / Intrusion)
+                </label>
+                <label style="display: flex; align-items: center; gap: 6px; font-size: 0.76rem; color: #fff; cursor: pointer;">
+                  <input type="checkbox" id="zone-alarm-lift-cb" checked onchange="updateZoneProperties()"> 🚨 Sound Alarm on Object / Box Lift
+                </label>
+                <div style="display: flex; align-items: center; gap: 8px; font-size: 0.76rem; color: #fff; margin-top: 2px;">
+                  <span>Loiter Threshold:</span>
+                  <input type="number" id="zone-loiter-sec-input" min="3" max="120" value="10" style="width: 55px; padding: 2px 4px; font-size: 0.75rem; background: rgba(15,23,42,0.9); border: 1px solid var(--card-border); color: #fff; border-radius: 4px;" onchange="updateZoneProperties()">
+                  <span style="color: var(--text-muted);">sec</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="input-group">
+              <label class="input-label">Authorized Persons (Exempt from Alarms)</label>
+              <div id="zone-auth-list" style="display: flex; flex-direction: column; gap: 4px; max-height: 90px; overflow-y: auto; background: rgba(0,0,0,0.3); padding: 6px; border-radius: 4px; border: 1px solid var(--card-border);">
+                <!-- Authorized person chips -->
+              </div>
+              <button class="btn btn-cyan" style="margin-top: 8px; font-size: 0.75rem; padding: 4px 8px;" onclick="openAuthPersonSelector()">➕ Add Authorized Person</button>
+            </div>
+
+            <div style="display: flex; gap: 8px; margin-top: 8px;">
+              <button class="btn btn-green" style="flex: 1; font-size: 0.8rem;" onclick="updateZoneProperties()">Save Changes</button>
+              <button class="btn" style="color: var(--accent-red); border-color: rgba(255,51,102,0.3); font-size: 0.8rem;" onclick="deleteCurrentZone()">🗑️ Delete</button>
+            </div>
+          </div>
+
+          <div style="margin-top: 16px; border-top: 1px solid var(--card-border); padding-top: 10px;">
+            <div style="font-weight: 700; font-size: 0.85rem; margin-bottom: 8px; color: var(--accent-amber); display: flex; align-items: center; gap: 6px;">
+              ⚙️ Pane Alarm & Event Rules
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+              <div class="form-group-toggle" style="background: rgba(0,0,0,0.3); padding: 6px 8px; border-radius: 6px; border: 1px solid var(--card-border);">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <div style="font-size: 0.75rem; color: #fff;">🚪 Door Entry & Intrusion Alarms</div>
+                  <label class="switch">
+                    <input type="checkbox" id="rule-intrusion-enabled" checked onchange="updateRuleSetting('intrusion_enabled', this.checked)">
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </div>
+              <div class="form-group-toggle" style="background: rgba(0,0,0,0.3); padding: 6px 8px; border-radius: 6px; border: 1px solid var(--card-border);">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <div style="font-size: 0.75rem; color: #fff;">📦 Box / Object Lift Alarms</div>
+                  <label class="switch">
+                    <input type="checkbox" id="rule-object-lift-enabled" checked onchange="updateRuleSetting('object_lift_enabled', this.checked)">
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </div>
+              <div class="form-group-toggle" style="background: rgba(0,0,0,0.3); padding: 6px 8px; border-radius: 6px; border: 1px solid var(--card-border);">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <div style="font-size: 0.75rem; color: #fff;">⏳ Loitering Detection</div>
+                  <label class="switch">
+                    <input type="checkbox" id="rule-activity-enabled" checked onchange="updateRuleSetting('activity_enabled', this.checked)">
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </div>
+              <button class="btn btn-cyan" style="margin-top: 6px; font-size: 0.75rem; padding: 4px 8px;" onclick="savePaneRules()">💾 Save Rules</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-actions" style="margin-top: 16px; display: flex; justify-content: space-between; align-items: center;">
+        <div style="font-size: 0.8rem; color: var(--text-muted);">
+          Zones are saved per-pane and used by the Event Engine for spatial-temporal analysis.
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn" onclick="closeZoneEditorModal()">Cancel</button>
+          <button class="btn btn-green" style="font-weight: 700; padding: 8px 22px; font-size: 0.88rem;" onclick="saveZonesToConfig()">
+            💾 Save All Zones
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js?v=6"></script>
 </body>
 </html>

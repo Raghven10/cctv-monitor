@@ -3,6 +3,8 @@ numpy>=1.26.0
 opencv-python-headless>=4.9.0.80,<5.0.0.0
 onnxruntime>=1.17.0
 pillow>=10.0.0
+ultralytics>=8.3.0
+torchvision
 
 # Web Framework & API Server
 fastapi>=0.110.0

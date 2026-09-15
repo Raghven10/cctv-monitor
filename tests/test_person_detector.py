@@ -26,6 +26,8 @@ def test_dual_mode_pipeline_dispatch(tmp_path):
     config = POCConfig()
     config.output.jsonl = jsonl_file
     config.display.auto_detect = True
+    config.display.calibration_file = str(tmp_path / "calib.json")
+    config.layout.manual_layout_file = str(tmp_path / "manual_layout.json")
 
     pipeline = RealtimePipeline(config)
 

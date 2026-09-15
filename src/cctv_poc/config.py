@@ -31,6 +31,7 @@ class DisplayConfig(BaseModel):
 
 class LayoutConfig(BaseModel):
     dynamic: bool = True
+    manual_layout_file: str = "config/manual_layout.json"
     min_panes: int = 1
     max_panes: int = 64
     stability_frames: int = 10
@@ -39,10 +40,12 @@ class LayoutConfig(BaseModel):
     gutter_min_width: int = 2
 
 
+
 class DetectionConfig(BaseModel):
     score_threshold: float = 0.70
     nms_threshold: float = 0.30
     min_face_size: int = 35
+    detection_interval: int = 3  # Run detection every N frames to increase FPS
 
 
 class BiometricsConfig(BaseModel):
@@ -72,7 +75,7 @@ class VLMConfig(BaseModel):
     sample_interval_seconds: float = 3.0
     trigger_on_low_ocr_confidence: bool = True
     trigger_on_layout_change: bool = True
-    timeout_seconds: float = 3.0
+    timeout_seconds: float = 15.0
     provider: str = "mock"  # "mock", "openai", "local", "remote"
     api_key: Optional[str] = None
     base_url: str = "https://api.openai.com/v1"

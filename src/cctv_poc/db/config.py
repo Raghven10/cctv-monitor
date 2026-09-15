@@ -131,4 +131,27 @@ def init_db():
     """Create all registered database tables if they do not already exist."""
     from . import models  # Ensure models are imported for metadata registration
     Base.metadata.create_all(bind=engine)
+
+    # Lightweight auto-migration to ensure columns like is_poi exist on existing databases
+    try:
+        with engine.begin() as conn:
+            dialect = engine.dialect.name
+            if dialect == "sqlite":
+                result = conn.execute(text("PRAGMA table_info(known_persons)"))
+                cols = [row[1] for row in result.fetchall()]
+                if cols and "is_poi" not in cols:
+                    logger.info("Migrating SQLite schema: Adding 'is_poi' to known_persons table...")
+                    conn.execute(text("ALTER TABLE known_persons ADD COLUMN is_poi BOOLEAN DEFAULT 0 NOT NULL"))
+            elif dialect == "postgresql":
+                result = conn.execute(text(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name = 'known_persons'"
+                ))
+                cols = [row[0] for row in result.fetchall()]
+                if cols and "is_poi" not in cols:
+                    logger.info("Migrating PostgreSQL schema: Adding 'is_poi' to known_persons table...")
+                    conn.execute(text("ALTER TABLE known_persons ADD COLUMN is_poi BOOLEAN DEFAULT FALSE NOT NULL"))
+    except Exception as e:
+        logger.warning(f"Database lightweight migration notice: {e}")
+
     logger.info("SQLAlchemy database tables verified and initialized.")
+
