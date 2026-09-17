@@ -360,63 +360,31 @@
     </div>
   </div>
 
-  <!-- Interactive CCTV Grid Pane Readjuster Modal (2-Step Setup Wizard) -->
+  <!-- Interactive CCTV Grid Pane Readjuster Modal -->
   <div class="modal-overlay" id="grid-editor-modal" style="display: none;">
-    <div class="modal-card" style="max-width: 900px; width: 96%; max-height: 94vh; display: flex; flex-direction: column;">
+    <div class="modal-card" style="max-width: 880px; width: 96%; max-height: 94vh; display: flex; flex-direction: column;">
       <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--card-border); padding-bottom: 10px;">
         <div class="modal-title" style="display: flex; align-items: center; gap: 8px;">
-          <span>📐 Manual Grid Layout Setup</span>
-          <span id="grid-editor-status-badge" style="font-size: 0.75rem; padding: 2px 8px; border-radius: 4px; background: rgba(0, 240, 255, 0.15); border: 1px solid var(--accent-cyan); color: var(--accent-cyan); font-family: 'JetBrains Mono', monospace;">Step 1: Mark Screen Corners</span>
+          <span>📐 CCTV Grid Pane Readjuster</span>
+          <span id="grid-editor-status-badge" style="font-size: 0.75rem; padding: 2px 8px; border-radius: 4px; background: rgba(0, 240, 255, 0.15); border: 1px solid var(--accent-cyan); color: var(--accent-cyan); font-family: 'JetBrains Mono', monospace;">2x2 (4 Panes)</span>
         </div>
         <button class="btn" style="padding: 4px 10px; font-size: 0.78rem;" onclick="closeGridEditorModal()">✕ Close</button>
       </div>
 
-      <!-- Wizard Step Tabs -->
-      <div class="wizard-tab-bar" style="margin-top: 10px;">
-        <div class="wizard-tab active" id="grid-wizard-step-1-tab" onclick="goToWizardStep(1)">
-          <span class="wizard-badge">1</span>
-          <span>Mark 4 Screen Corners</span>
-        </div>
-        <div class="wizard-tab" id="grid-wizard-step-2-tab" onclick="goToWizardStep(2)">
-          <span class="wizard-badge">2</span>
-          <span>Flatten Screen & Drag Grid Lines</span>
-        </div>
-      </div>
-
-      <!-- STEP 1 Controls (Corner Alignment) -->
-      <div id="grid-wizard-step-1-controls" style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px; background: rgba(10, 14, 26, 0.85); border: 1px solid var(--card-border); border-radius: 8px; padding: 10px 14px;">
-        <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between;">
-          <div style="display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--text-secondary);">
-            <span>🎯 <b>Step 1</b>: Mark the <b>4 physical corners</b> of your screen monitor (TL, TR, BR, BL).</span>
-          </div>
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <button class="btn" style="padding: 4px 10px; font-size: 0.78rem;" onclick="autoSnapCalibrationCorners()" title="Snap corners to screen borders">
-              ⚡ Auto-Snap Corners
-            </button>
-            <button class="btn" style="padding: 4px 10px; font-size: 0.78rem;" onclick="resetCalibrationCorners()" title="Reset corners to full frame">
-              🔄 Reset Corners
-            </button>
-            <button class="btn btn-cyan" style="padding: 5px 14px; font-size: 0.82rem; font-weight: 700;" onclick="goToWizardStep(2)">
-              ➡️ Next: Flatten Screen & Set Grid
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- STEP 2 Controls (Flattened Screen & Draggable Grid Lines) -->
-      <div id="grid-wizard-step-2-controls" style="display: none; flex-direction: column; gap: 8px; margin-top: 8px; background: rgba(10, 14, 26, 0.85); border: 1px solid var(--card-border); border-radius: 8px; padding: 10px 14px;">
+      <!-- Controls Toolbar inside Modal -->
+      <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px; background: rgba(10, 14, 26, 0.85); border: 1px solid var(--card-border); border-radius: 8px; padding: 10px 14px;">
         <!-- Row 1: Grid Presets & Dimensions -->
         <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between;">
           <div style="display: flex; align-items: center; gap: 8px;">
             <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase;">Grid Layout:</span>
             <select id="modal-grid-preset-select" class="btn" style="padding: 5px 12px; font-size: 0.82rem; font-weight: 700; border-color: var(--accent-cyan); background: rgba(15, 23, 42, 0.95); color: var(--accent-cyan); cursor: pointer;" onchange="onModalGridPresetChange(this.value)">
               <option value="2X2" selected>2x2 (4 Panes - Quad View)</option>
-              <option value="1X1">1x1 (Single Pane)</option>
-              <option value="1X2">1x2 (2 Panes Horizontal)</option>
-              <option value="2X1">2x1 (2 Panes Vertical)</option>
               <option value="2X3">2x3 (6 Panes)</option>
               <option value="3X2">3x2 (6 Panes)</option>
               <option value="3X3">3x3 (9 Panes)</option>
+              <option value="1X1">1x1 (Single Pane)</option>
+              <option value="1X2">1x2 (2 Panes Horizontal)</option>
+              <option value="2X1">2x1 (2 Panes Vertical)</option>
               <option value="3X4">3x4 (12 Panes)</option>
               <option value="4X3">4x3 (12 Panes)</option>
               <option value="4X4">4x4 (16 Panes)</option>
@@ -439,7 +407,7 @@
               <button class="btn" style="padding: 2px 7px; font-size: 0.75rem;" onclick="changeEditorCols(1)">+</button>
             </div>
             <button class="btn" style="padding: 3px 10px; font-size: 0.75rem; border-color: rgba(0, 240, 255, 0.4);" onclick="distributeEditorEvenly()" title="Equalize divider spacing">
-              ⚖️ Equalize Spacing
+              ⚖️ Distribute Evenly
             </button>
           </div>
         </div>
@@ -463,22 +431,19 @@
       </div>
 
       <!-- Instruction Tip -->
-      <div id="grid-editor-instruction-tip" style="font-size: 0.78rem; color: var(--text-muted); margin-top: 6px; display: flex; align-items: center; gap: 6px;">
+      <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 6px; display: flex; align-items: center; gap: 6px;">
         <span>💡</span>
-        <span id="grid-editor-tip-text">Drag the <b>4 corner pins (TL, TR, BR, BL)</b> to outline the physical screen display.</span>
+        <span>Click any pane to select it. Drag <b>corner vertices</b> or <b>edges</b> to readjust bounds. Label panes with AI or manual override, then click <b>🔒 Finalise</b>.</span>
       </div>
 
       <!-- Interactive Canvas Container -->
-      <div style="position: relative; margin-top: 8px; background: #000; border: 1px solid var(--card-border); border-radius: 8px; overflow: hidden; display: flex; justify-content: center; align-items: center; min-height: 300px; flex: 1;">
-        <canvas id="grid-editor-canvas" style="max-width: 100%; max-height: 500px; display: block;"></canvas>
+      <div style="position: relative; margin-top: 8px; background: #000; border: 1px solid var(--card-border); border-radius: 8px; overflow: hidden; display: flex; justify-content: center; align-items: center; min-height: 280px; flex: 1;">
+        <canvas id="grid-editor-canvas" style="max-width: 100%; max-height: 480px; display: block;"></canvas>
       </div>
 
       <!-- Action Buttons -->
       <div class="modal-actions" style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center;">
         <div style="display: flex; gap: 8px;">
-          <button class="btn" id="btn-wizard-back-corners" style="display: none; font-size: 0.8rem;" onclick="goToWizardStep(1)">
-            ⬅️ Back to Corners
-          </button>
           <button class="btn" style="background: rgba(255, 51, 102, 0.15); border-color: var(--accent-red); color: #ff99b3; font-size: 0.8rem;" onclick="resetManualGridLayout()">
             🔄 Reset to Auto-Detect
           </button>
@@ -486,14 +451,9 @@
             🎯 Edit Zones
           </button>
         </div>
-        <div style="display: flex; gap: 8px;">
-          <button id="btn-wizard-next-step" class="btn btn-cyan" style="font-weight: 700; padding: 8px 20px; font-size: 0.88rem;" onclick="goToWizardStep(2)">
-            ➡️ Next: Flatten Screen & Set Grid
-          </button>
-          <button id="btn-wizard-finalize" class="btn btn-green" style="display: none; font-weight: 700; padding: 8px 24px; font-size: 0.88rem;" onclick="saveManualGridLayout(true)">
-            🔒 Finalise Layout
-          </button>
-        </div>
+        <button class="btn btn-green" style="font-weight: 700; padding: 8px 24px; font-size: 0.88rem;" onclick="saveManualGridLayout(true)">
+          🔒 Finalise Layout
+        </button>
       </div>
     </div>
   </div>

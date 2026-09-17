@@ -2690,26 +2690,12 @@ async function resetCalibration() {
 }
 
 // ----------------------------------------------------------------------------
-// INTERACTIVE 2-STEP CCTV MANUAL GRID LAYOUT WIZARD
-// Step 1: Mark 4 Screen Corners -> Perspective Flattening
-// Step 2: Divided Preset Grid (Default 2x2) with Draggable Middle Divider Lines
+// INTERACTIVE CCTV GRID PANE READJUSTER (Direct Mesh & Vertex Readjuster)
 // ----------------------------------------------------------------------------
-
-let gridWizardStep = 1; // 1 = Mark 4 Corners, 2 = Flattened Grid Dividers
-
-let calibCorners = [
-  { x: 0.03, y: 0.03, label: 'TL', color: '#00f0ff' },
-  { x: 0.97, y: 0.03, label: 'TR', color: '#00ff88' },
-  { x: 0.97, y: 0.97, label: 'BR', color: '#ffaa33' },
-  { x: 0.03, y: 0.97, label: 'BL', color: '#ff3366' },
-];
 
 let editorRows = 2;
 let editorCols = 2;
-let editorXDividers = [0.5]; // Normalized 0.0 to 1.0 (length = cols - 1)
-let editorYDividers = [0.5]; // Normalized 0.0 to 1.0 (length = rows - 1)
 let editorSnapshotImg = null;
-let editorFlattenedCanvas = null;
 let editorSourceWidth = 1280;
 let editorSourceHeight = 720;
 
@@ -2726,20 +2712,11 @@ const PRESET_DIVIDER_MAP = {
   '4X4': { rows: 4, cols: 4 },
 };
 
-function createEvenDividersList(count) {
-  if (count <= 1) return [];
-  const list = [];
-  for (let i = 1; i < count; i++) {
-    list.push(roundCoord(i / count));
-  }
-  return list;
-}
-
 let editorActivePreset = '2X2';
 let editorActivePaneIndex = 0;
 let editorPanes = [];
 let editorPaneLabels = {};
-let editorMesh = []; // 2D array of (rows + 1) x (cols + 1) in original webcam coordinates
+let editorMesh = []; // 2D array of (rows + 1) x (cols + 1) normalized [x, y] coordinates
 let activeDragState = null;
 
 const AI_SUGGESTED_PANE_LABELS = [
@@ -2762,11 +2739,78 @@ const AI_SUGGESTED_PANE_LABELS = [
 ];
 
 /**
+ * Initializes a uniform (rows + 1) x (cols + 1) mesh in normalized 0.0-1.0 coordinate space.
+ */
+function initMeshFromGrid(rows, cols) {
+  editorMesh = [];
+  for (let r = 0; r <= rows; r++) {
+    const rowPts = [];
+    for (let c = 0; c <= cols; c++) {
+      rowPts.push([
+        roundCoord(c / cols),
+        roundCoord(r / rows)
+      ]);
+    }
+    editorMesh.push(rowPts);
+  }
+}
+
+/**
+ * Generates pane geometries and quads from the 2D mesh vertices.
+ */
+function buildEditorPanesFromMesh() {
+  editorPanes = [];
+  if (!editorMesh || editorMesh.length !== editorRows + 1) {
+    initMeshFromGrid(editorRows, editorCols);
+  }
+
+  let idx = 0;
+  for (let r = 0; r < editorRows; r++) {
+    for (let c = 0; c < editorCols; c++) {
+      idx++;
+      const pid = `Pane-${String(idx).padStart(2, '0')}`;
+      const existingLbl = editorPaneLabels[pid] || (AI_SUGGESTED_PANE_LABELS[idx - 1] || `CAM-${String(idx).padStart(2, '0')}`);
+      editorPaneLabels[pid] = existingLbl;
+
+      const c_tl = editorMesh[r][c];
+      const c_tr = editorMesh[r][c + 1];
+      const c_br = editorMesh[r + 1][c + 1];
+      const c_bl = editorMesh[r + 1][c];
+
+      const xs = [c_tl[0], c_tr[0], c_br[0], c_bl[0]];
+      const ys = [c_tl[1], c_tr[1], c_br[1], c_bl[1]];
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      const minY = Math.min(...ys);
+      const maxY = Math.max(...ys);
+
+      editorPanes.push({
+        id: pid,
+        index: idx - 1,
+        row: r,
+        col: c,
+        x: roundCoord(minX),
+        y: roundCoord(minY),
+        w: roundCoord(Math.max(0.01, maxX - minX)),
+        h: roundCoord(Math.max(0.01, maxY - minY)),
+        corners: [c_tl, c_tr, c_br, c_bl],
+        flat_corners: [
+          [roundCoord(c / editorCols), roundCoord(r / editorRows)],
+          [roundCoord((c + 1) / editorCols), roundCoord(r / editorRows)],
+          [roundCoord((c + 1) / editorCols), roundCoord((r + 1) / editorRows)],
+          [roundCoord(c / editorCols), roundCoord((r + 1) / editorRows)],
+        ],
+        label: existingLbl,
+      });
+    }
+  }
+}
+
+/**
  * Single Navbar dropdown change handler:
  * Only two options: 'AUTO' (Dynamic AI Scan) or 'MANUAL' (Manual Layout Detection)
  */
 async function onLayoutModeDropdownChange(mode) {
-  const modeSelect = document.getElementById('select-layout-mode');
   if (mode === 'AUTO') {
     try {
       const res = await fetch('/api/reset_manual_layout', { method: 'POST' });
@@ -2787,173 +2831,6 @@ async function onLayoutModeDropdownChange(mode) {
   }
 }
 
-/**
- * Perspective Warping: Rectifies 4 marked corners of screen into a flat rectangle canvas.
- */
-function warpSnapshotPerspective(sourceCanvasOrImg, corners, targetW, targetH) {
-  const destCanvas = document.createElement('canvas');
-  destCanvas.width = targetW || 1280;
-  destCanvas.height = targetH || 720;
-  const ctx = destCanvas.getContext('2d');
-  if (!sourceCanvasOrImg || !corners || corners.length < 4) return destCanvas;
-
-  const srcW = sourceCanvasOrImg.width || targetW;
-  const srcH = sourceCanvasOrImg.height || targetH;
-
-  const GRID_N = 24;
-  const c0 = [corners[0].x * srcW, corners[0].y * srcH]; // TL
-  const c1 = [corners[1].x * srcW, corners[1].y * srcH]; // TR
-  const c2 = [corners[2].x * srcW, corners[2].y * srcH]; // BR
-  const c3 = [corners[3].x * srcW, corners[3].y * srcH]; // BL
-
-  function srcPt(u, v) {
-    const x = (1 - u) * (1 - v) * c0[0] + u * (1 - v) * c1[0] + u * v * c2[0] + (1 - u) * v * c3[0];
-    const y = (1 - u) * (1 - v) * c0[1] + u * (1 - v) * c1[1] + u * v * c2[1] + (1 - u) * v * c3[1];
-    return [x, y];
-  }
-
-  for (let gy = 0; gy < GRID_N; gy++) {
-    for (let gx = 0; gx < GRID_N; gx++) {
-      const u0 = gx / GRID_N, u1 = (gx + 1) / GRID_N;
-      const v0 = gy / GRID_N, v1 = (gy + 1) / GRID_N;
-
-      const dx0 = u0 * destCanvas.width, dx1 = u1 * destCanvas.width;
-      const dy0 = v0 * destCanvas.height, dy1 = v1 * destCanvas.height;
-
-      const sp0 = srcPt(u0, v0);
-      const sp1 = srcPt(u1, v0);
-      const sp2 = srcPt(u1, v1);
-      const sp3 = srcPt(u0, v1);
-
-      drawWarpTriangle(ctx, sourceCanvasOrImg, sp0, sp1, sp3, [dx0, dy0], [dx1, dy0], [dx0, dy1]);
-      drawWarpTriangle(ctx, sourceCanvasOrImg, sp1, sp2, sp3, [dx1, dy0], [dx1, dy1], [dx0, dy1]);
-    }
-  }
-
-  return destCanvas;
-}
-
-function drawWarpTriangle(ctx, img, s0, s1, s2, d0, d1, d2) {
-  ctx.save();
-  ctx.beginPath();
-  ctx.moveTo(d0[0], d0[1]);
-  ctx.lineTo(d1[0], d1[1]);
-  ctx.lineTo(d2[0], d2[1]);
-  ctx.closePath();
-  ctx.clip();
-
-  const denom = (s0[0] * (s1[1] - s2[1]) - s1[0] * (s0[1] - s2[1]) + s2[0] * (s0[1] - s1[1]));
-  if (Math.abs(denom) > 1e-6) {
-    const a = -(s0[1] * (d1[0] - d2[0]) - s1[1] * (d0[0] - d2[0]) + s2[1] * (d0[0] - d1[0])) / denom;
-    const b = (s0[1] * (d1[1] - d2[1]) - s1[1] * (d0[1] - d2[1]) + s2[1] * (d0[1] - d1[1])) / denom;
-    const c = (s0[0] * (d1[0] - d2[0]) - s1[0] * (d0[0] - d2[0]) + s2[0] * (d0[0] - d1[0])) / denom;
-    const d = -(s0[0] * (d1[1] - d2[1]) - s1[0] * (d0[1] - d2[1]) + s2[0] * (d0[1] - d1[1])) / denom;
-    const e = (s0[0] * (s1[1] * d2[0] - s2[1] * d1[0]) - s1[0] * (s0[1] * d2[0] - s2[1] * d0[0]) + s2[0] * (s0[1] * d1[0] - s1[1] * d0[0])) / denom;
-    const f = (s0[0] * (s1[1] * d2[1] - s2[1] * d1[1]) - s1[0] * (s0[1] * d2[1] - s2[1] * d0[1]) + s2[0] * (s0[1] * d1[1] - s1[1] * d0[1])) / denom;
-
-    ctx.transform(a, b, c, d, e, f);
-    ctx.drawImage(img, 0, 0);
-  }
-  ctx.restore();
-}
-
-/**
- * Maps normalized flat coordinates (u, v) back to original webcam frame space.
- */
-function mapFlatToOrig(u, v) {
-  const c0 = [calibCorners[0].x, calibCorners[0].y]; // TL
-  const c1 = [calibCorners[1].x, calibCorners[1].y]; // TR
-  const c2 = [calibCorners[2].x, calibCorners[2].y]; // BR
-  const c3 = [calibCorners[3].x, calibCorners[3].y]; // BL
-
-  const x = (1 - u) * (1 - v) * c0[0] + u * (1 - v) * c1[0] + u * v * c2[0] + (1 - u) * v * c3[0];
-  const y = (1 - u) * (1 - v) * c0[1] + u * (1 - v) * c1[1] + u * v * c2[1] + (1 - u) * v * c3[1];
-  return [roundCoord(x), roundCoord(y)];
-}
-
-/**
- * Wizard Step Switcher: 1 (Corners) or 2 (Flattened Grid Dividers)
- */
-function goToWizardStep(step) {
-  gridWizardStep = step;
-
-  const tab1 = document.getElementById('grid-wizard-step-1-tab');
-  const tab2 = document.getElementById('grid-wizard-step-2-tab');
-  const ctrl1 = document.getElementById('grid-wizard-step-1-controls');
-  const ctrl2 = document.getElementById('grid-wizard-step-2-controls');
-  const btnBack = document.getElementById('btn-wizard-back-corners');
-  const btnNext = document.getElementById('btn-wizard-next-step');
-  const btnFinal = document.getElementById('btn-wizard-finalize');
-  const badge = document.getElementById('grid-editor-status-badge');
-  const tipText = document.getElementById('grid-editor-tip-text');
-
-  if (step === 1) {
-    if (tab1) { tab1.className = 'wizard-tab active'; }
-    if (tab2) { tab2.className = 'wizard-tab'; }
-    if (ctrl1) ctrl1.style.display = 'flex';
-    if (ctrl2) ctrl2.style.display = 'none';
-    if (btnBack) btnBack.style.display = 'none';
-    if (btnNext) btnNext.style.display = 'inline-block';
-    if (btnFinal) btnFinal.style.display = 'none';
-    if (badge) badge.textContent = 'Step 1: Mark Screen Corners';
-    if (tipText) tipText.innerHTML = 'Drag the <b>4 corner pins (TL, TR, BR, BL)</b> to outline the physical screen display.';
-  } else {
-    if (tab1) { tab1.className = 'wizard-tab completed'; }
-    if (tab2) { tab2.className = 'wizard-tab active'; }
-    if (ctrl1) ctrl1.style.display = 'none';
-    if (ctrl2) ctrl2.style.display = 'flex';
-    if (btnBack) btnBack.style.display = 'inline-block';
-    if (btnNext) btnNext.style.display = 'none';
-    if (btnFinal) btnFinal.style.display = 'inline-block';
-
-    // Warp and flatten snapshot
-    if (editorSnapshotImg) {
-      editorFlattenedCanvas = warpSnapshotPerspective(
-        editorSnapshotImg,
-        calibCorners,
-        editorSourceWidth,
-        editorSourceHeight
-      );
-    }
-
-    // Default to 2x2 if dividers not set
-    if (editorXDividers.length !== editorCols - 1) {
-      editorXDividers = createEvenDividersList(editorCols);
-    }
-    if (editorYDividers.length !== editorRows - 1) {
-      editorYDividers = createEvenDividersList(editorRows);
-    }
-
-    buildEditorPanesFromDividers();
-    updateEditorControlsDOM();
-    if (tipText) tipText.innerHTML = 'Screen flattened! Drag <b>middle divider lines</b> (left/right or up/down) to adjust pane widths and heights.';
-  }
-
-  drawGridEditorCanvas();
-}
-
-function autoSnapCalibrationCorners() {
-  calibCorners = [
-    { x: 0.04, y: 0.04, label: 'TL', color: '#00f0ff' },
-    { x: 0.96, y: 0.04, label: 'TR', color: '#00ff88' },
-    { x: 0.96, y: 0.96, label: 'BR', color: '#ffaa33' },
-    { x: 0.04, y: 0.96, label: 'BL', color: '#ff3366' },
-  ];
-  drawGridEditorCanvas();
-  showToast('⚡ Snapped corners to screen borders');
-}
-
-function resetCalibrationCorners() {
-  calibCorners = [
-    { x: 0.01, y: 0.01, label: 'TL', color: '#00f0ff' },
-    { x: 0.99, y: 0.01, label: 'TR', color: '#00ff88' },
-    { x: 0.99, y: 0.99, label: 'BR', color: '#ffaa33' },
-    { x: 0.01, y: 0.99, label: 'BL', color: '#ff3366' },
-  ];
-  drawGridEditorCanvas();
-  showToast('🔄 Reset corners to full screen bounds');
-}
-
 function onModalGridPresetChange(preset) {
   editorActivePreset = preset;
   if (PRESET_DIVIDER_MAP[preset]) {
@@ -2961,75 +2838,11 @@ function onModalGridPresetChange(preset) {
     editorRows = p.rows;
     editorCols = p.cols;
   }
-  editorXDividers = createEvenDividersList(editorCols);
-  editorYDividers = createEvenDividersList(editorRows);
-  buildEditorPanesFromDividers();
+  initMeshFromGrid(editorRows, editorCols);
+  buildEditorPanesFromMesh();
   editorActivePaneIndex = 0;
   updateEditorControlsDOM();
   drawGridEditorCanvas();
-}
-
-/**
- * Generates pane geometries from normalized divider lines:
- * Column bounds = [0, ...editorXDividers, 1.0]
- * Row bounds = [0, ...editorYDividers, 1.0]
- */
-function buildEditorPanesFromDividers() {
-  editorPanes = [];
-  const xBounds = [0.0, ...editorXDividers, 1.0];
-  const yBounds = [0.0, ...editorYDividers, 1.0];
-
-  // Also build corresponding 2D mesh in original frame coordinates
-  editorMesh = [];
-  for (let r = 0; r <= editorRows; r++) {
-    const rowPts = [];
-    for (let c = 0; c <= editorCols; c++) {
-      const u = xBounds[c];
-      const v = yBounds[r];
-      rowPts.push(mapFlatToOrig(u, v));
-    }
-    editorMesh.push(rowPts);
-  }
-
-  let idx = 0;
-  for (let r = 0; r < editorRows; r++) {
-    for (let c = 0; c < editorCols; c++) {
-      idx++;
-      const pid = `Pane-${String(idx).padStart(2, '0')}`;
-      const existingLbl = editorPaneLabels[pid] || (AI_SUGGESTED_PANE_LABELS[idx - 1] || `CAM-${String(idx).padStart(2, '0')}`);
-      editorPaneLabels[pid] = existingLbl;
-
-      const normX = xBounds[c];
-      const normY = yBounds[r];
-      const normW = Math.max(0.01, xBounds[c + 1] - xBounds[c]);
-      const normH = Math.max(0.01, yBounds[r + 1] - yBounds[r]);
-
-      // 4 corners in original perspective coordinates
-      const origTL = editorMesh[r][c];
-      const origTR = editorMesh[r][c + 1];
-      const origBR = editorMesh[r + 1][c + 1];
-      const origBL = editorMesh[r + 1][c];
-
-      editorPanes.push({
-        id: pid,
-        index: idx - 1,
-        row: r,
-        col: c,
-        x: roundCoord(normX),
-        y: roundCoord(normY),
-        w: roundCoord(normW),
-        h: roundCoord(normH),
-        corners: [origTL, origTR, origBR, origBL],
-        flat_corners: [
-          [roundCoord(normX), roundCoord(normY)],
-          [roundCoord(normX + normW), roundCoord(normY)],
-          [roundCoord(normX + normW), roundCoord(normY + normH)],
-          [roundCoord(normX), roundCoord(normY + normH)],
-        ],
-        label: existingLbl,
-      });
-    }
-  }
 }
 
 async function loadActiveManualLayout() {
@@ -3048,8 +2861,12 @@ async function loadActiveManualLayout() {
         editorActivePreset = cfg.preset || '2X2';
         editorRows = cfg.rows || 2;
         editorCols = cfg.cols || 2;
-        editorXDividers = (cfg.x_dividers && cfg.x_dividers.length === editorCols - 1) ? cfg.x_dividers : createEvenDividersList(editorCols);
-        editorYDividers = (cfg.y_dividers && cfg.y_dividers.length === editorRows - 1) ? cfg.y_dividers : createEvenDividersList(editorRows);
+
+        if (cfg.mesh && Array.isArray(cfg.mesh) && cfg.mesh.length === editorRows + 1) {
+          editorMesh = cfg.mesh;
+        } else {
+          initMeshFromGrid(editorRows, editorCols);
+        }
 
         if (cfg.panes_metadata && cfg.panes_metadata.length > 0) {
           cfg.panes_metadata.forEach(pm => {
@@ -3057,7 +2874,7 @@ async function loadActiveManualLayout() {
           });
         }
 
-        buildEditorPanesFromDividers();
+        buildEditorPanesFromMesh();
 
         if (cfg.is_finalized) {
           isGridLayoutFinalized = true;
@@ -3096,22 +2913,24 @@ function openGridEditorModal() {
     editorSnapshotImg = off;
   }
 
-  // 2. Default to 2x2 if not set
+  // 2. Default preset if not set
   if (!editorActivePreset) editorActivePreset = '2X2';
   const presetDropdown = document.getElementById('modal-grid-preset-select');
   if (presetDropdown) presetDropdown.value = editorActivePreset;
 
   editorRows = PRESET_DIVIDER_MAP[editorActivePreset] ? PRESET_DIVIDER_MAP[editorActivePreset].rows : 2;
   editorCols = PRESET_DIVIDER_MAP[editorActivePreset] ? PRESET_DIVIDER_MAP[editorActivePreset].cols : 2;
-  editorXDividers = createEvenDividersList(editorCols);
-  editorYDividers = createEvenDividersList(editorRows);
 
-  buildEditorPanesFromDividers();
+  if (!editorMesh || editorMesh.length !== editorRows + 1) {
+    initMeshFromGrid(editorRows, editorCols);
+  }
+  buildEditorPanesFromMesh();
   editorActivePaneIndex = 0;
 
   modal.style.display = 'flex';
   initGridEditorCanvas();
-  goToWizardStep(1); // Start with Step 1: Mark Screen Corners
+  updateEditorControlsDOM();
+  drawGridEditorCanvas();
 }
 
 function closeGridEditorModal() {
@@ -3133,13 +2952,7 @@ function updateEditorControlsDOM() {
 
   if (rEl) rEl.textContent = editorRows;
   if (cEl) cEl.textContent = editorCols;
-  if (badge) {
-    if (gridWizardStep === 1) {
-      badge.textContent = 'Step 1: Mark Screen Corners';
-    } else {
-      badge.textContent = `${editorRows}x${editorCols} (${editorPanes.length} Panes - Flattened Grid)`;
-    }
-  }
+  if (badge) badge.textContent = `${editorRows}x${editorCols} (${editorPanes.length} Panes)`;
 
   const curPane = editorPanes[editorActivePaneIndex];
   if (curPane) {
@@ -3155,8 +2968,8 @@ function changeEditorRows(delta) {
     editorActivePreset = 'CUSTOM';
     const presetDropdown = document.getElementById('modal-grid-preset-select');
     if (presetDropdown) presetDropdown.value = 'CUSTOM';
-    editorYDividers = createEvenDividersList(editorRows);
-    buildEditorPanesFromDividers();
+    initMeshFromGrid(editorRows, editorCols);
+    buildEditorPanesFromMesh();
     updateEditorControlsDOM();
     drawGridEditorCanvas();
   }
@@ -3169,19 +2982,18 @@ function changeEditorCols(delta) {
     editorActivePreset = 'CUSTOM';
     const presetDropdown = document.getElementById('modal-grid-preset-select');
     if (presetDropdown) presetDropdown.value = 'CUSTOM';
-    editorXDividers = createEvenDividersList(editorCols);
-    buildEditorPanesFromDividers();
+    initMeshFromGrid(editorRows, editorCols);
+    buildEditorPanesFromMesh();
     updateEditorControlsDOM();
     drawGridEditorCanvas();
   }
 }
 
 function distributeEditorEvenly() {
-  editorXDividers = createEvenDividersList(editorCols);
-  editorYDividers = createEvenDividersList(editorRows);
-  buildEditorPanesFromDividers();
+  initMeshFromGrid(editorRows, editorCols);
+  buildEditorPanesFromMesh();
   drawGridEditorCanvas();
-  showToast('⚖️ Divider lines equalized evenly');
+  showToast('⚖️ Grid mesh equalized evenly');
 }
 
 // Pane Labeling: AI Suggestion & Manual Override
@@ -3251,76 +3063,76 @@ function getEditorCanvasCoords(e) {
   };
 }
 
-function onEditorPointerDown(e) {
-  const coords = getEditorCanvasCoords(e);
+function findHitMeshTarget(coords) {
   const canvas = document.getElementById('grid-editor-canvas');
-  if (!canvas) return;
+  if (!canvas) return null;
   const W = canvas.width;
   const H = canvas.height;
 
-  if (gridWizardStep === 1) {
-    // Step 1: Drag or reposition 4 screen corner pins
-    let closestIdx = 0;
-    let minDist = Infinity;
-    for (let i = 0; i < 4; i++) {
-      const cx = calibCorners[i].x * W;
-      const cy = calibCorners[i].y * H;
-      const dist = Math.hypot(coords.pixelX - cx, coords.pixelY - cy);
-      if (dist < minDist) {
-        minDist = dist;
-        closestIdx = i;
+  // 1. Check Vertex handles (radius 18px)
+  for (let r = 0; r <= editorRows; r++) {
+    for (let c = 0; c <= editorCols; c++) {
+      const pt = editorMesh[r][c];
+      const vx = pt[0] * W;
+      const vy = pt[1] * H;
+      if (Math.hypot(coords.pixelX - vx, coords.pixelY - vy) <= 18) {
+        return { type: 'vertex', r, c };
       }
     }
-    calibCorners[closestIdx].x = coords.normX;
-    calibCorners[closestIdx].y = coords.normY;
-    activeDragState = { type: 'corner', index: closestIdx };
-    drawGridEditorCanvas();
-    return;
   }
 
-  // Step 2: Drag Vertical or Horizontal Middle Divider Lines
-  // Check Vertical Dividers (left/right drag)
-  for (let i = 0; i < editorXDividers.length; i++) {
-    const lineX = editorXDividers[i] * W;
-    const midY = H / 2;
-    const distToLine = Math.abs(coords.pixelX - lineX);
-    const distToHandle = Math.hypot(coords.pixelX - lineX, coords.pixelY - midY);
-
-    if (distToHandle <= 20 || distToLine <= 12) {
-      activeDragState = { type: 'x-divider', index: i };
-      drawGridEditorCanvas();
-      return;
+  // 2. Check Horizontal Edge midpoints and lines
+  for (let r = 0; r <= editorRows; r++) {
+    for (let c = 0; c < editorCols; c++) {
+      const p0 = editorMesh[r][c];
+      const p1 = editorMesh[r][c + 1];
+      const mx = ((p0[0] + p1[0]) / 2) * W;
+      const my = ((p0[1] + p1[1]) / 2) * H;
+      if (Math.hypot(coords.pixelX - mx, coords.pixelY - my) <= 20) {
+        return { type: 'h-edge', r, c, startY: coords.normY };
+      }
     }
   }
 
-  // Check Horizontal Dividers (up/down drag)
-  for (let j = 0; j < editorYDividers.length; j++) {
-    const lineY = editorYDividers[j] * H;
-    const midX = W / 2;
-    const distToLine = Math.abs(coords.pixelY - lineY);
-    const distToHandle = Math.hypot(coords.pixelX - midX, coords.pixelY - lineY);
-
-    if (distToHandle <= 20 || distToLine <= 12) {
-      activeDragState = { type: 'y-divider', index: j };
-      drawGridEditorCanvas();
-      return;
+  // 3. Check Vertical Edge midpoints and lines
+  for (let r = 0; r < editorRows; r++) {
+    for (let c = 0; c <= editorCols; c++) {
+      const p0 = editorMesh[r][c];
+      const p1 = editorMesh[r + 1][c];
+      const mx = ((p0[0] + p1[0]) / 2) * W;
+      const my = ((p0[1] + p1[1]) / 2) * H;
+      if (Math.hypot(coords.pixelX - mx, coords.pixelY - my) <= 20) {
+        return { type: 'v-edge', r, c, startX: coords.normX };
+      }
     }
   }
 
-  // Check clicking inside any pane to select it
+  // 4. Check Panes (click inside pane body)
   for (let i = editorPanes.length - 1; i >= 0; i--) {
     const p = editorPanes[i];
     const px = p.x * W;
     const py = p.y * H;
     const pw = p.w * W;
     const ph = p.h * H;
-
     if (coords.pixelX >= px && coords.pixelX <= px + pw && coords.pixelY >= py && coords.pixelY <= py + ph) {
-      editorActivePaneIndex = i;
-      updateEditorControlsDOM();
-      drawGridEditorCanvas();
-      return;
+      return { type: 'pane-body', paneIndex: i, startX: coords.normX, startY: coords.normY };
     }
+  }
+
+  return null;
+}
+
+function onEditorPointerDown(e) {
+  const coords = getEditorCanvasCoords(e);
+  const target = findHitMeshTarget(coords);
+
+  if (target) {
+    activeDragState = target;
+    if (target.paneIndex !== undefined) {
+      editorActivePaneIndex = target.paneIndex;
+      updateEditorControlsDOM();
+    }
+    drawGridEditorCanvas();
   }
 }
 
@@ -3328,75 +3140,78 @@ function onEditorPointerMove(e) {
   const canvas = document.getElementById('grid-editor-canvas');
   if (!canvas) return;
   const coords = getEditorCanvasCoords(e);
-  const W = canvas.width;
-  const H = canvas.height;
 
   if (activeDragState) {
-    if (activeDragState.type === 'corner') {
-      calibCorners[activeDragState.index].x = coords.normX;
-      calibCorners[activeDragState.index].y = coords.normY;
+    if (activeDragState.type === 'vertex') {
+      const { r, c } = activeDragState;
+      editorMesh[r][c] = [roundCoord(coords.normX), roundCoord(coords.normY)];
+      buildEditorPanesFromMesh();
       canvas.style.cursor = 'move';
       drawGridEditorCanvas();
       return;
-    } else if (activeDragState.type === 'x-divider') {
-      const idx = activeDragState.index;
-      const minLim = (idx > 0 ? editorXDividers[idx - 1] : 0.0) + 0.04;
-      const maxLim = (idx < editorXDividers.length - 1 ? editorXDividers[idx + 1] : 1.0) - 0.04;
-      editorXDividers[idx] = roundCoord(Math.max(minLim, Math.min(maxLim, coords.normX)));
-      buildEditorPanesFromDividers();
+    } else if (activeDragState.type === 'h-edge') {
+      const { r, c, startY } = activeDragState;
+      const dy = coords.normY - startY;
+      activeDragState.startY = coords.normY;
+
+      editorMesh[r][c][1] = roundCoord(Math.max(0.001, Math.min(0.999, editorMesh[r][c][1] + dy)));
+      editorMesh[r][c + 1][1] = roundCoord(Math.max(0.001, Math.min(0.999, editorMesh[r][c + 1][1] + dy)));
+
+      buildEditorPanesFromMesh();
+      canvas.style.cursor = 'ns-resize';
+      drawGridEditorCanvas();
+      return;
+    } else if (activeDragState.type === 'v-edge') {
+      const { r, c, startX } = activeDragState;
+      const dx = coords.normX - startX;
+      activeDragState.startX = coords.normX;
+
+      editorMesh[r][c][0] = roundCoord(Math.max(0.001, Math.min(0.999, editorMesh[r][c][0] + dx)));
+      editorMesh[r + 1][c][0] = roundCoord(Math.max(0.001, Math.min(0.999, editorMesh[r + 1][c][0] + dx)));
+
+      buildEditorPanesFromMesh();
       canvas.style.cursor = 'ew-resize';
       drawGridEditorCanvas();
       return;
-    } else if (activeDragState.type === 'y-divider') {
-      const idx = activeDragState.index;
-      const minLim = (idx > 0 ? editorYDividers[idx - 1] : 0.0) + 0.04;
-      const maxLim = (idx < editorYDividers.length - 1 ? editorYDividers[idx + 1] : 1.0) - 0.04;
-      editorYDividers[idx] = roundCoord(Math.max(minLim, Math.min(maxLim, coords.normY)));
-      buildEditorPanesFromDividers();
-      canvas.style.cursor = 'ns-resize';
+    } else if (activeDragState.type === 'pane-body') {
+      const { paneIndex, startX, startY } = activeDragState;
+      const dx = coords.normX - startX;
+      const dy = coords.normY - startY;
+      activeDragState.startX = coords.normX;
+      activeDragState.startY = coords.normY;
+
+      const p = editorPanes[paneIndex];
+      const r = p.row;
+      const c = p.col;
+
+      editorMesh[r][c][0] = roundCoord(Math.max(0.001, Math.min(0.999, editorMesh[r][c][0] + dx)));
+      editorMesh[r][c][1] = roundCoord(Math.max(0.001, Math.min(0.999, editorMesh[r][c][1] + dy)));
+
+      editorMesh[r][c + 1][0] = roundCoord(Math.max(0.001, Math.min(0.999, editorMesh[r][c + 1][0] + dx)));
+      editorMesh[r][c + 1][1] = roundCoord(Math.max(0.001, Math.min(0.999, editorMesh[r][c + 1][1] + dy)));
+
+      editorMesh[r + 1][c + 1][0] = roundCoord(Math.max(0.001, Math.min(0.999, editorMesh[r + 1][c + 1][0] + dx)));
+      editorMesh[r + 1][c + 1][1] = roundCoord(Math.max(0.001, Math.min(0.999, editorMesh[r + 1][c + 1][1] + dy)));
+
+      editorMesh[r + 1][c][0] = roundCoord(Math.max(0.001, Math.min(0.999, editorMesh[r + 1][c][0] + dx)));
+      editorMesh[r + 1][c][1] = roundCoord(Math.max(0.001, Math.min(0.999, editorMesh[r + 1][c][1] + dy)));
+
+      buildEditorPanesFromMesh();
+      canvas.style.cursor = 'move';
       drawGridEditorCanvas();
       return;
     }
   }
 
   // Hover detection
-  if (gridWizardStep === 1) {
-    let nearCorner = false;
-    for (let i = 0; i < 4; i++) {
-      const cx = calibCorners[i].x * W;
-      const cy = calibCorners[i].y * H;
-      if (Math.hypot(coords.pixelX - cx, coords.pixelY - cy) <= 18) {
-        nearCorner = true;
-        break;
-      }
-    }
-    canvas.style.cursor = nearCorner ? 'move' : 'crosshair';
+  const target = findHitMeshTarget(coords);
+  if (target) {
+    if (target.type === 'vertex') canvas.style.cursor = 'move';
+    else if (target.type === 'h-edge') canvas.style.cursor = 'ns-resize';
+    else if (target.type === 'v-edge') canvas.style.cursor = 'ew-resize';
+    else if (target.type === 'pane-body') canvas.style.cursor = 'pointer';
   } else {
-    // Step 2 Hover: Check if over vertical or horizontal divider lines
-    let overX = false;
-    for (let i = 0; i < editorXDividers.length; i++) {
-      const lineX = editorXDividers[i] * W;
-      if (Math.abs(coords.pixelX - lineX) <= 12) {
-        overX = true;
-        break;
-      }
-    }
-    let overY = false;
-    for (let j = 0; j < editorYDividers.length; j++) {
-      const lineY = editorYDividers[j] * H;
-      if (Math.abs(coords.pixelY - lineY) <= 12) {
-        overY = true;
-        break;
-      }
-    }
-
-    if (overX) {
-      canvas.style.cursor = 'ew-resize';
-    } else if (overY) {
-      canvas.style.cursor = 'ns-resize';
-    } else {
-      canvas.style.cursor = 'pointer';
-    }
+    canvas.style.cursor = 'crosshair';
   }
 }
 
@@ -3414,87 +3229,11 @@ function drawGridEditorCanvas() {
 
   ctx.clearRect(0, 0, W, H);
 
-  // =========================================================================
-  // STEP 1 RENDER: Mark 4 Screen Corners on Raw Camera Frame
-  // =========================================================================
-  if (gridWizardStep === 1) {
-    if (editorSnapshotImg) {
-      ctx.drawImage(editorSnapshotImg, 0, 0, W, H);
-      ctx.fillStyle = 'rgba(10, 14, 26, 0.35)';
-      ctx.fillRect(0, 0, W, H);
-    } else {
-      ctx.fillStyle = '#080c14';
-      ctx.fillRect(0, 0, W, H);
-    }
-
-    const pts = calibCorners.map(c => ({ x: c.x * W, y: c.y * H }));
-
-    // Quad Polygon Fill & Border
-    ctx.beginPath();
-    ctx.moveTo(pts[0].x, pts[0].y);
-    ctx.lineTo(pts[1].x, pts[1].y);
-    ctx.lineTo(pts[2].x, pts[2].y);
-    ctx.lineTo(pts[3].x, pts[3].y);
-    ctx.closePath();
-
-    ctx.fillStyle = 'rgba(0, 240, 255, 0.15)';
-    ctx.fill();
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = '#00f0ff';
-    ctx.shadowColor = '#00f0ff';
-    ctx.shadowBlur = 10;
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-
-    // Cross diagonals
-    ctx.beginPath();
-    ctx.moveTo(pts[0].x, pts[0].y);
-    ctx.lineTo(pts[2].x, pts[2].y);
-    ctx.moveTo(pts[1].x, pts[1].y);
-    ctx.lineTo(pts[3].x, pts[3].y);
-    ctx.strokeStyle = 'rgba(0, 240, 255, 0.25)';
-    ctx.setLineDash([6, 6]);
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // Corner pin handles
-    pts.forEach((pt, i) => {
-      const c = calibCorners[i];
-      const isDrag = (activeDragState && activeDragState.type === 'corner' && activeDragState.index === i);
-
-      // Outer glow circle
-      ctx.beginPath();
-      ctx.arc(pt.x, pt.y, isDrag ? 20 : 15, 0, Math.PI * 2);
-      ctx.fillStyle = c.color;
-      ctx.shadowColor = c.color;
-      ctx.shadowBlur = isDrag ? 16 : 8;
-      ctx.fill();
-      ctx.shadowBlur = 0;
-      ctx.lineWidth = 2.5;
-      ctx.strokeStyle = '#ffffff';
-      ctx.stroke();
-
-      // Corner label
-      ctx.fillStyle = '#000000';
-      ctx.font = 'bold 11px "JetBrains Mono", monospace';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(c.label, pt.x, pt.y);
-    });
-
-    return;
-  }
-
-  // =========================================================================
-  // STEP 2 RENDER: Flattened Canonical Screen with Draggable Middle Divider Lines
-  // =========================================================================
-  if (editorFlattenedCanvas) {
-    ctx.drawImage(editorFlattenedCanvas, 0, 0, W, H);
-    ctx.fillStyle = 'rgba(10, 14, 26, 0.2)';
-    ctx.fillRect(0, 0, W, H);
-  } else if (editorSnapshotImg) {
+  // Background frame
+  if (editorSnapshotImg) {
     ctx.drawImage(editorSnapshotImg, 0, 0, W, H);
+    ctx.fillStyle = 'rgba(10, 14, 26, 0.35)';
+    ctx.fillRect(0, 0, W, H);
   } else {
     ctx.fillStyle = '#080c14';
     ctx.fillRect(0, 0, W, H);
@@ -3503,32 +3242,39 @@ function drawGridEditorCanvas() {
   // 1. Draw Panes
   editorPanes.forEach((p, idx) => {
     const isSelected = idx === editorActivePaneIndex;
-    const px = p.x * W;
-    const py = p.y * H;
-    const pw = p.w * W;
-    const ph = p.h * H;
+    const c_tl = p.corners[0];
+    const c_tr = p.corners[1];
+    const c_br = p.corners[2];
+    const c_bl = p.corners[3];
+
+    ctx.beginPath();
+    ctx.moveTo(c_tl[0] * W, c_tl[1] * H);
+    ctx.lineTo(c_tr[0] * W, c_tr[1] * H);
+    ctx.lineTo(c_br[0] * W, c_br[1] * H);
+    ctx.lineTo(c_bl[0] * W, c_bl[1] * H);
+    ctx.closePath();
 
     // Fill
-    ctx.fillStyle = isSelected ? 'rgba(0, 240, 255, 0.18)' : ((idx % 2 === 0) ? 'rgba(0, 240, 255, 0.04)' : 'rgba(0, 255, 136, 0.03)');
-    ctx.fillRect(px, py, pw, ph);
+    ctx.fillStyle = isSelected ? 'rgba(0, 240, 255, 0.22)' : ((idx % 2 === 0) ? 'rgba(0, 240, 255, 0.05)' : 'rgba(0, 255, 136, 0.04)');
+    ctx.fill();
 
     // Border
     if (isSelected) {
       ctx.strokeStyle = '#00f0ff';
-      ctx.lineWidth = 2.5;
+      ctx.lineWidth = 3;
       ctx.shadowColor = '#00f0ff';
-      ctx.shadowBlur = 10;
-      ctx.strokeRect(px, py, pw, ph);
+      ctx.shadowBlur = 12;
+      ctx.stroke();
       ctx.shadowBlur = 0;
     } else {
-      ctx.strokeStyle = 'rgba(0, 240, 255, 0.35)';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(px, py, pw, ph);
+      ctx.strokeStyle = 'rgba(0, 240, 255, 0.4)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
     }
 
     // Centered Pane Badge
-    const cx = px + pw / 2;
-    const cy = py + ph / 2;
+    const cx = ((c_tl[0] + c_tr[0] + c_br[0] + c_bl[0]) / 4) * W;
+    const cy = ((c_tl[1] + c_tr[1] + c_br[1] + c_bl[1]) / 4) * H;
     const lbl = p.label || editorPaneLabels[p.id] || p.id;
     const displayTitle = `${p.id}: ${lbl}`;
 
@@ -3552,144 +3298,98 @@ function drawGridEditorCanvas() {
     // Resolution subtext
     ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
     ctx.font = '10px "JetBrains Mono", monospace';
-    ctx.fillText(`${Math.round(pw)}x${Math.round(ph)} px (${Math.round(p.w * 100)}% x ${Math.round(p.h * 100)}%)`, cx, cy + 18);
+    ctx.fillText(`${Math.round(p.w * W)}x${Math.round(p.h * H)} px`, cx, cy + 18);
   });
 
-  // 2. Draw Vertical Divider Lines (Draggable Left/Right)
-  for (let i = 0; i < editorXDividers.length; i++) {
-    const lx = editorXDividers[i] * W;
-    const isDrag = (activeDragState && activeDragState.type === 'x-divider' && activeDragState.index === i);
+  // 2. Midpoint Grab Pills on Horizontal Grid Lines
+  for (let r = 0; r <= editorRows; r++) {
+    for (let c = 0; c < editorCols; c++) {
+      const p0 = editorMesh[r][c];
+      const p1 = editorMesh[r][c + 1];
+      const mx = ((p0[0] + p1[0]) / 2) * W;
+      const my = ((p0[1] + p1[1]) / 2) * H;
+      const hw = 24, hh = 8;
 
-    ctx.beginPath();
-    ctx.moveTo(lx, 0);
-    ctx.lineTo(lx, H);
-    ctx.strokeStyle = isDrag ? '#00ff88' : '#00f0ff';
-    ctx.lineWidth = isDrag ? 3 : 2;
-    ctx.shadowColor = isDrag ? '#00ff88' : '#00f0ff';
-    ctx.shadowBlur = isDrag ? 12 : 6;
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-
-    // Grab Handle Pill in center of vertical line
-    const my = H / 2;
-    const hw = 12, hh = 36;
-    ctx.fillStyle = isDrag ? '#00ff88' : '#0a1a2e';
-    ctx.fillRect(lx - hw / 2, my - hh / 2, hw, hh);
-    ctx.strokeStyle = isDrag ? '#ffffff' : '#00f0ff';
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(lx - hw / 2, my - hh / 2, hw, hh);
-
-    // Grip lines inside pill
-    ctx.strokeStyle = isDrag ? '#000000' : '#00f0ff';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(lx - 3, my - 8); ctx.lineTo(lx + 3, my - 8);
-    ctx.moveTo(lx - 3, my);     ctx.lineTo(lx + 3, my);
-    ctx.moveTo(lx - 3, my + 8); ctx.lineTo(lx + 3, my + 8);
-    ctx.stroke();
-
-    // Position Tooltip when dragging
-    if (isDrag) {
-      const tip = `Col Split: ${(editorXDividers[i] * 100).toFixed(1)}% (${Math.round(lx)}px)`;
-      ctx.font = 'bold 11px "JetBrains Mono", monospace';
-      const tw = ctx.measureText(tip).width + 16;
-      ctx.fillStyle = 'rgba(0, 20, 36, 0.95)';
-      ctx.fillRect(lx - tw / 2, my - 38, tw, 22);
-      ctx.strokeStyle = '#00ff88';
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(lx - tw / 2, my - 38, tw, 22);
-      ctx.fillStyle = '#00ff88';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(tip, lx, my - 27);
+      ctx.fillStyle = 'rgba(10, 26, 46, 0.9)';
+      ctx.fillRect(mx - hw / 2, my - hh / 2, hw, hh);
+      ctx.strokeStyle = 'rgba(0, 240, 255, 0.7)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(mx - hw / 2, my - hh / 2, hw, hh);
     }
   }
 
-  // 3. Draw Horizontal Divider Lines (Draggable Up/Down)
-  for (let j = 0; j < editorYDividers.length; j++) {
-    const ly = editorYDividers[j] * H;
-    const isDrag = (activeDragState && activeDragState.type === 'y-divider' && activeDragState.index === j);
+  // 3. Midpoint Grab Pills on Vertical Grid Lines
+  for (let r = 0; r < editorRows; r++) {
+    for (let c = 0; c <= editorCols; c++) {
+      const p0 = editorMesh[r][c];
+      const p1 = editorMesh[r + 1][c];
+      const mx = ((p0[0] + p1[0]) / 2) * W;
+      const my = ((p0[1] + p1[1]) / 2) * H;
+      const hw = 8, hh = 24;
 
-    ctx.beginPath();
-    ctx.moveTo(0, ly);
-    ctx.lineTo(W, ly);
-    ctx.strokeStyle = isDrag ? '#00ff88' : '#00f0ff';
-    ctx.lineWidth = isDrag ? 3 : 2;
-    ctx.shadowColor = isDrag ? '#00ff88' : '#00f0ff';
-    ctx.shadowBlur = isDrag ? 12 : 6;
-    ctx.stroke();
-    ctx.shadowBlur = 0;
+      ctx.fillStyle = 'rgba(10, 26, 46, 0.9)';
+      ctx.fillRect(mx - hw / 2, my - hh / 2, hw, hh);
+      ctx.strokeStyle = 'rgba(0, 240, 255, 0.7)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(mx - hw / 2, my - hh / 2, hw, hh);
+    }
+  }
 
-    // Grab Handle Pill in center of horizontal line
-    const mx = W / 2;
-    const hw = 36, hh = 12;
-    ctx.fillStyle = isDrag ? '#00ff88' : '#0a1a2e';
-    ctx.fillRect(mx - hw / 2, ly - hh / 2, hw, hh);
-    ctx.strokeStyle = isDrag ? '#ffffff' : '#00f0ff';
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(mx - hw / 2, ly - hh / 2, hw, hh);
+  // 4. Mesh Corner Vertex Handles
+  for (let r = 0; r <= editorRows; r++) {
+    for (let c = 0; c <= editorCols; c++) {
+      const pt = editorMesh[r][c];
+      const vx = pt[0] * W;
+      const vy = pt[1] * H;
+      const isDrag = (activeDragState && activeDragState.type === 'vertex' && activeDragState.r === r && activeDragState.c === c);
 
-    // Grip lines inside pill
-    ctx.strokeStyle = isDrag ? '#000000' : '#00f0ff';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(mx - 8, ly - 3); ctx.lineTo(mx - 8, ly + 3);
-    ctx.moveTo(mx,     ly - 3); ctx.lineTo(mx,     ly + 3);
-    ctx.moveTo(mx + 8, ly - 3); ctx.lineTo(mx + 8, ly + 3);
-    ctx.stroke();
-
-    // Position Tooltip when dragging
-    if (isDrag) {
-      const tip = `Row Split: ${(editorYDividers[j] * 100).toFixed(1)}% (${Math.round(ly)}px)`;
-      ctx.font = 'bold 11px "JetBrains Mono", monospace';
-      const tw = ctx.measureText(tip).width + 16;
-      ctx.fillStyle = 'rgba(0, 20, 36, 0.95)';
-      ctx.fillRect(mx - tw / 2, ly - 38, tw, 22);
-      ctx.strokeStyle = '#00ff88';
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(mx - tw / 2, ly - 38, tw, 22);
-      ctx.fillStyle = '#00ff88';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(tip, mx, ly - 27);
+      ctx.beginPath();
+      ctx.arc(vx, vy, isDrag ? 9 : 6, 0, Math.PI * 2);
+      ctx.fillStyle = isDrag ? '#00ff88' : '#00f0ff';
+      ctx.shadowColor = isDrag ? '#00ff88' : '#00f0ff';
+      ctx.shadowBlur = isDrag ? 12 : 6;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#ffffff';
+      ctx.stroke();
     }
   }
 }
 
 /**
- * Finalize Grid: locks layout, persists 4-corner perspective calibration and divider grid metadata,
- * triggers smooth center-splitting animation and activates real-time multi-pane detection.
+ * Finalize Grid: locks layout, persists mesh and metadata,
+ * triggers center-splitting animation and activates real-time multi-pane detection.
  */
 async function saveManualGridLayout(finalize = false) {
   try {
     const endpoint = finalize ? '/api/finalize_grid' : '/api/set_manual_layout';
 
-    // 1. Persist 4-corner screen calibration
-    const calibPayload = {
-      corners: calibCorners.map(c => [
-        Math.round(c.x * editorSourceWidth),
-        Math.round(c.y * editorSourceHeight)
-      ]),
-      width: editorSourceWidth,
-      height: editorSourceHeight,
-    };
-    try {
-      await fetch('/api/calibrate_display', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(calibPayload),
-      });
-    } catch (e) {
-      console.warn('Display calibration save error:', e);
+    // Compute average x_dividers and y_dividers for legacy consumer endpoints
+    const x_divs = [];
+    for (let c = 1; c < editorCols; c++) {
+      let sumX = 0;
+      for (let r = 0; r <= editorRows; r++) {
+        sumX += editorMesh[r][c][0];
+      }
+      x_divs.push(roundCoord(sumX / (editorRows + 1)));
     }
 
-    // 2. Persist manual grid layout & dividers
+    const y_divs = [];
+    for (let r = 1; r < editorRows; r++) {
+      let sumY = 0;
+      for (let c = 0; c <= editorCols; c++) {
+        sumY += editorMesh[r][c][1];
+      }
+      y_divs.push(roundCoord(sumY / (editorCols + 1)));
+    }
+
     const payload = {
       preset: editorActivePreset || 'CUSTOM',
       rows: editorRows,
       cols: editorCols,
-      x_dividers: editorXDividers,
-      y_dividers: editorYDividers,
+      x_dividers: x_divs,
+      y_dividers: y_divs,
       panes_metadata: editorPanes.map(p => ({
         id: p.id,
         row: p.row,
@@ -3754,7 +3454,7 @@ async function saveManualGridLayout(finalize = false) {
 
         renderSplitGrid(_cachedLastPanes, _cachedLastPersons);
         showToast(`🔒 Layout Finalized (${editorRows}x${editorCols})! Split view activated.`);
-        addLogLine(`<b>🔒 GRID FINALIZED</b>: Perspective screen normalized & ${editorRows}x${editorCols} grid locked.`);
+        addLogLine(`<b>🔒 GRID FINALIZED</b>: ${editorRows}x${editorCols} grid locked.`);
       } else {
         showToast(`✅ ${editorRows}x${editorCols} Custom Grid preview updated.`);
       }

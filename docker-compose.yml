@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: cctv-monitor:airgapped-latest
+    image: cctv-monitor:airgapped-v1.0.0
     container_name: cctv-monitor-app
     restart: unless-stopped
     ports:
@@ -24,12 +24,12 @@ services:
       # Persistent storage for events, registered identities, and output data
       - cctv_data:/app/data
       # Mount config as read-write so the config update API can save changes
-      - ./config:/app/config
-      - ./tests:/app/tests
+      # - ./config:/app/config
+      # - ./tests:/app/tests
       # Mount src so code and static asset edits take effect immediately
-      - ./src:/app/src
-    # NOTE: No /dev/video* device passthrough needed.
-    # The webcam runs in the user's browser via getUserMedia() — not on the server.
+      # - ./src:/app/src
+      # NOTE: No /dev/video* device passthrough needed.
+      # The webcam runs in the user's browser via getUserMedia() — not on the server.
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8080/api/status" ]
       interval: 30s

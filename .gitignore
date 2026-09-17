@@ -13,39 +13,21 @@ venv/
 env/
 .env
 
-# Model weights (large binary files — bundle in docker/separately)
+# ONNX model weights (large binary files — bundle separately)
 *.onnx
-*.pt
-*.pth
-*.bin
-*.weights
-*.safetensors
 
-# Media and video files
-*.mp4
-*.avi
-*.mov
-*.mkv
-*.webm
-*.flv
-
-# SQLite databases & runtime data
+# SQLite databases
 *.db
 *.db-shm
 *.db-wal
-*.sqlite
-*.sqlite3
 
-# App runtime data (events, snapshots, videos, models)
-data/
+# App runtime data (events, snapshots, output)
+data/events/
+data/output/
+data/snapshots/
 
 # Config overrides with secrets (keep poc.yaml template)
 config/calibration.json
-
-# Accidental / temp files
-*`
-*.bak
-*.tmp
 
 # Docker
 .dockerignore
@@ -74,5 +56,4 @@ htmlcov/
 # Distribution
 *.tar.gz
 *.tar
-*.zip
-
+data/vidssave.com PEDIDO 26711 720P.mp4
